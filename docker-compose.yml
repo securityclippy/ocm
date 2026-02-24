@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  ocm:
+    build: .
+    container_name: ocm
+    volumes:
+      - ocm-data:/data
+    environment:
+      - OCM_MASTER_KEY=${OCM_MASTER_KEY}
+    ports:
+      - "127.0.0.1:8080:8080"   # Admin UI (localhost only)
+      # - "9999:9999"           # Agent API (internal only in production)
+    restart: unless-stopped
+
+volumes:
+  ocm-data:
