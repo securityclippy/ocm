@@ -3,9 +3,9 @@
 # Default target
 all: build
 
-# Build frontend
+# Build frontend (uses pnpm for reliability)
 web:
-	cd web && npm install && npm run build
+	cd web && pnpm install && pnpm build
 
 # Run tests
 test:

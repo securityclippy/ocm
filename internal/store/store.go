@@ -306,16 +306,27 @@ func (s *Store) GetElevation(id string) (*Elevation, error) {
 	defer s.mu.RUnlock()
 
 	var elev Elevation
+	var approvedAt, expiresAt sql.NullTime
+	var approvedBy sql.NullString
 	err := s.db.QueryRow(`
 		SELECT id, service, scope, reason, status, requested_at, approved_at, expires_at, approved_by
 		FROM elevations WHERE id = ?
 	`, id).Scan(&elev.ID, &elev.Service, &elev.Scope, &elev.Reason, &elev.Status,
-		&elev.RequestedAt, &elev.ApprovedAt, &elev.ExpiresAt, &elev.ApprovedBy)
+		&elev.RequestedAt, &approvedAt, &expiresAt, &approvedBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if approvedAt.Valid {
+		elev.ApprovedAt = &approvedAt.Time
+	}
+	if expiresAt.Valid {
+		elev.ExpiresAt = &expiresAt.Time
+	}
+	if approvedBy.Valid {
+		elev.ApprovedBy = approvedBy.String
 	}
 	return &elev, nil
 }
@@ -326,18 +337,29 @@ func (s *Store) GetActiveElevation(service, scope string) (*Elevation, error) {
 	defer s.mu.RUnlock()
 
 	var elev Elevation
+	var approvedAt, expiresAt sql.NullTime
+	var approvedBy sql.NullString
 	err := s.db.QueryRow(`
 		SELECT id, service, scope, reason, status, requested_at, approved_at, expires_at, approved_by
 		FROM elevations 
 		WHERE service = ? AND scope = ? AND status = 'approved' AND expires_at > datetime('now')
 		ORDER BY expires_at DESC LIMIT 1
 	`, service, scope).Scan(&elev.ID, &elev.Service, &elev.Scope, &elev.Reason, &elev.Status,
-		&elev.RequestedAt, &elev.ApprovedAt, &elev.ExpiresAt, &elev.ApprovedBy)
+		&elev.RequestedAt, &approvedAt, &expiresAt, &approvedBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if approvedAt.Valid {
+		elev.ApprovedAt = &approvedAt.Time
+	}
+	if expiresAt.Valid {
+		elev.ExpiresAt = &expiresAt.Time
+	}
+	if approvedBy.Valid {
+		elev.ApprovedBy = approvedBy.String
 	}
 	return &elev, nil
 }
@@ -373,9 +395,20 @@ func (s *Store) ListPendingElevations() ([]*Elevation, error) {
 	var elevs []*Elevation
 	for rows.Next() {
 		var elev Elevation
+		var approvedAt, expiresAt sql.NullTime
+		var approvedBy sql.NullString
 		if err := rows.Scan(&elev.ID, &elev.Service, &elev.Scope, &elev.Reason, &elev.Status,
-			&elev.RequestedAt, &elev.ApprovedAt, &elev.ExpiresAt, &elev.ApprovedBy); err != nil {
+			&elev.RequestedAt, &approvedAt, &expiresAt, &approvedBy); err != nil {
 			return nil, err
+		}
+		if approvedAt.Valid {
+			elev.ApprovedAt = &approvedAt.Time
+		}
+		if expiresAt.Valid {
+			elev.ExpiresAt = &expiresAt.Time
+		}
+		if approvedBy.Valid {
+			elev.ApprovedBy = approvedBy.String
 		}
 		elevs = append(elevs, &elev)
 	}
