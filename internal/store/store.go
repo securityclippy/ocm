@@ -37,6 +37,7 @@ type Credential struct {
 // Scope represents a single permission scope within a credential.
 type Scope struct {
 	Name             string        `json:"name"`
+	EnvVar           string        `json:"envVar"`           // Env var name (e.g., "GMAIL_TOKEN")
 	Permanent        bool          `json:"permanent"`        // Always available if true
 	RequiresApproval bool          `json:"requiresApproval"` // Needs elevation if true
 	MaxTTL           time.Duration `json:"maxTTL"`           // Maximum elevation duration
