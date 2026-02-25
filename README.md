@@ -86,8 +86,8 @@ If you prefer to do things manually:
 cp .env.example .env
 ./ocm keygen --stdout  # Copy output to .env as OCM_MASTER_KEY
 
-# 2. Build
-just build  # or: make build
+# 2. Build (requires just: https://github.com/casey/just)
+just build
 
 # 3. Run
 ./ocm serve
@@ -183,18 +183,15 @@ GET /admin/api/audit
 
 ## Development
 
+Requires [just](https://github.com/casey/just) (`brew install just` or `cargo install just`).
+
 ```bash
-# Using just (recommended)
 just build          # Build frontend + backend
 just build-backend  # Backend only (faster)
 just test           # Run tests
 just dev            # Run without building
 just clean          # Clean artifacts
-
-# Using make
-make build
-make test
-make dev
+just run            # Build backend + run
 ```
 
 ## Docker
