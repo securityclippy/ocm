@@ -18,6 +18,8 @@ import (
 	"github.com/openclaw/ocm/internal/store"
 )
 
+const defaultMasterKeyPath = "~/.ocm/master.key"
+
 var serveFlags struct {
 	agentAddr     string
 	adminAddr     string
@@ -38,7 +40,7 @@ func init() {
 	serveCmd.Flags().StringVar(&serveFlags.agentAddr, "agent-addr", ":9999", "Agent API listen address")
 	serveCmd.Flags().StringVar(&serveFlags.adminAddr, "admin-addr", ":8080", "Admin API/UI listen address")
 	serveCmd.Flags().StringVar(&serveFlags.dbPath, "db", "ocm.db", "Database path")
-	serveCmd.Flags().StringVar(&serveFlags.masterKeyFile, "master-key-file", "", "Path to master key file (or set OCM_MASTER_KEY env)")
+	serveCmd.Flags().StringVar(&serveFlags.masterKeyFile, "master-key-file", "", "Path to master key file (default: "+defaultMasterKeyPath+", or set OCM_MASTER_KEY env)")
 	serveCmd.Flags().StringVar(&serveFlags.gatewayURL, "gateway-url", "http://localhost:18789", "OpenClaw Gateway RPC URL")
 	serveCmd.Flags().StringVar(&serveFlags.envFile, "env-file", "", "Path to .env file for credential injection (default: ~/.openclaw/.env)")
 }
@@ -140,36 +142,53 @@ func loadMasterKey(keyFile string) ([]byte, error) {
 		return hexDecode(key)
 	}
 
-	// Try key file
-	if keyFile != "" {
-		data, err := os.ReadFile(keyFile)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("key file not found: %s\n\nTo generate a new key:\n  ocm keygen -o %s", keyFile, keyFile)
-			}
-			return nil, fmt.Errorf("read key file: %w", err)
-		}
-		// Key file should be raw 32 bytes or 64 hex chars
-		if len(data) == 32 {
-			return data, nil
-		}
-		if len(data) == 64 || len(data) == 65 { // 65 for trailing newline
-			return hexDecode(string(data[:64]))
-		}
-		return nil, fmt.Errorf("key file must be 32 bytes or 64 hex characters")
+	// Determine which key file to try
+	keyPath := keyFile
+	if keyPath == "" {
+		// Use default path
+		keyPath = defaultMasterKeyPath
 	}
 
-	return nil, fmt.Errorf(`no master key provided
+	// Expand ~ to home directory
+	if len(keyPath) > 0 && keyPath[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand home directory: %w", err)
+		}
+		keyPath = home + keyPath[1:]
+	}
+
+	// Try to read key file
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if keyFile != "" {
+				// User specified a path that doesn't exist
+				return nil, fmt.Errorf("key file not found: %s\n\nTo generate a new key:\n  ocm keygen -o %s", keyFile, keyFile)
+			}
+			// Default path doesn't exist
+			return nil, fmt.Errorf(`master key not found at %s
 
 To generate a new master key:
-  ocm keygen                    # print to stdout
-  ocm keygen -o ~/.ocm/master.key  # save to file
+  ocm keygen
 
-Then start OCM with:
-  export OCM_MASTER_KEY=<key>   # environment variable
-  ocm serve --master-key-file ~/.ocm/master.key  # or key file
+Then start OCM:
+  ocm serve
 
-The master key encrypts all stored credentials. Keep it safe!`)
+Or use an environment variable:
+  export OCM_MASTER_KEY=<64-hex-chars>`, defaultMasterKeyPath)
+		}
+		return nil, fmt.Errorf("read key file: %w", err)
+	}
+
+	// Key file should be raw 32 bytes or 64 hex chars
+	if len(data) == 32 {
+		return data, nil
+	}
+	if len(data) == 64 || len(data) == 65 { // 65 for trailing newline
+		return hexDecode(string(data[:64]))
+	}
+	return nil, fmt.Errorf("key file must be 32 bytes or 64 hex characters")
 }
 
 func hexDecode(s string) ([]byte, error) {

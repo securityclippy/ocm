@@ -10,9 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultKeyPath = "~/.ocm/master.key"
+
 var keygenFlags struct {
 	output string
 	force  bool
+	stdout bool
 }
 
 var keygenCmd = &cobra.Command{
@@ -21,16 +24,20 @@ var keygenCmd = &cobra.Command{
 	Long: `Generate a cryptographically secure 256-bit master key for OCM.
 
 The key is used to encrypt all stored credentials with AES-256-GCM.
+By default, the key is saved to ~/.ocm/master.key (same default used by 'ocm serve').
 
 Examples:
-  # Print key to stdout (copy to OCM_MASTER_KEY env var)
+  # Generate key to default location (~/.ocm/master.key)
   ocm keygen
 
-  # Write key to a file
+  # Write key to a custom path
   ocm keygen -o /path/to/master.key
 
+  # Print key to stdout instead of saving
+  ocm keygen --stdout
+
   # Overwrite existing key file
-  ocm keygen -o /path/to/master.key --force
+  ocm keygen --force
 
 Security notes:
   - Store the key securely (e.g., secrets manager, encrypted vault)
@@ -41,8 +48,9 @@ Security notes:
 }
 
 func init() {
-	keygenCmd.Flags().StringVarP(&keygenFlags.output, "output", "o", "", "Write key to file instead of stdout")
+	keygenCmd.Flags().StringVarP(&keygenFlags.output, "output", "o", "", "Write key to custom path (default: "+defaultKeyPath+")")
 	keygenCmd.Flags().BoolVarP(&keygenFlags.force, "force", "f", false, "Overwrite existing key file")
+	keygenCmd.Flags().BoolVar(&keygenFlags.stdout, "stdout", false, "Print key to stdout instead of saving to file")
 }
 
 func runKeygen(cmd *cobra.Command, args []string) error {
@@ -54,20 +62,20 @@ func runKeygen(cmd *cobra.Command, args []string) error {
 
 	keyHex := hex.EncodeToString(key)
 
-	if keygenFlags.output == "" {
-		// Print to stdout
+	if keygenFlags.stdout {
+		// Print to stdout only
 		fmt.Println(keyHex)
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "To use this key:")
 		fmt.Fprintln(os.Stderr, "  export OCM_MASTER_KEY="+keyHex)
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Or save to a file:")
-		fmt.Fprintln(os.Stderr, "  ocm keygen -o ~/.ocm/master.key")
 		return nil
 	}
 
-	// Write to file
+	// Write to file (default: ~/.ocm/master.key)
 	outputPath := keygenFlags.output
+	if outputPath == "" {
+		outputPath = defaultKeyPath
+	}
 	if outputPath[0] == '~' {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -93,8 +101,14 @@ func runKeygen(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Master key written to: %s\n", outputPath)
 	fmt.Println("")
-	fmt.Println("To use this key:")
-	fmt.Printf("  ocm serve --master-key-file %s\n", keygenFlags.output)
+	if keygenFlags.output == "" {
+		// Used default path
+		fmt.Println("You can now start OCM:")
+		fmt.Println("  ocm serve")
+	} else {
+		fmt.Println("To use this key:")
+		fmt.Printf("  ocm serve --master-key-file %s\n", keygenFlags.output)
+	}
 	fmt.Println("")
 	fmt.Println("Security reminder:")
 	fmt.Println("  - Back up this key securely")
