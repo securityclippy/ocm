@@ -8,16 +8,22 @@
 #   OCM_MASTER_KEY - 64 hex chars (generate with: ocm keygen --stdout)
 #
 # Optional:
-#   OPENCLAW_IMAGE - OpenClaw image (default: ghcr.io/anthropics/openclaw:latest)
+#   OPENCLAW_IMAGE - OpenClaw image (must be set - no public image yet)
 #   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw
 #   OPENCLAW_WORKSPACE_DIR - Host path to workspace
+#
+# NOTE: OpenClaw doesn't have a public Docker image yet.
+# To use this, either:
+#   1. Build OpenClaw locally: cd /path/to/openclaw && docker build -t openclaw:local .
+#   2. Set OPENCLAW_IMAGE in .env to your local image
+#   3. Or use docker-compose.yml for OCM-only mode
 
 services:
   # ============================================
   # OpenClaw Gateway
   # ============================================
   openclaw:
-    image: ${OPENCLAW_IMAGE:-ghcr.io/anthropics/openclaw:latest}
+    image: ${OPENCLAW_IMAGE:?Set OPENCLAW_IMAGE in .env (e.g., openclaw:local)}
     container_name: openclaw
     environment:
       HOME: /home/node

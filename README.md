@@ -35,30 +35,42 @@ OCM solves a fundamental security problem with AI agents: **credentials in the a
 ### One-Command Setup
 
 ```bash
-# Docker (OCM + OpenClaw) - recommended
+# OCM standalone (no OpenClaw dependency)
+./scripts/quickstart.sh docker-ocm
+
+# OCM + OpenClaw (requires building OpenClaw image first)
 ./scripts/quickstart.sh docker
 
-# Or local development (requires Go + Node)
+# Local development (requires Go + Node)
 ./scripts/quickstart.sh local
 ```
 
-### Option 1: Docker with OpenClaw (Recommended)
+### Option 1: Docker - OCM Only (Easiest)
 
 ```bash
-# Setup environment and build image
-./scripts/docker.sh
+./scripts/docker.sh ocm-only
 
-# This will:
-# - Create .env from template
-# - Generate master key
-# - Build OCM Docker image
-# - Start OCM + OpenClaw
+# Admin UI: http://localhost:8080
+```
+
+### Option 2: Docker - OCM + OpenClaw
+
+**Note:** OpenClaw doesn't have a public Docker image yet. Build it first:
+
+```bash
+# Build OpenClaw image (one-time)
+cd /path/to/openclaw
+docker build -t openclaw:local .
+
+# Then run OCM + OpenClaw
+cd /path/to/ocm
+./scripts/docker.sh
 
 # Admin UI: http://localhost:8080
 # Gateway:  http://localhost:18789
 ```
 
-### Option 2: Local Development
+### Option 3: Local Development
 
 **Prerequisites:** Go 1.22+, Node.js 20+, pnpm
 
