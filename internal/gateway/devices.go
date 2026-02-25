@@ -39,16 +39,25 @@ type DeviceListResponse struct {
 
 // rpcMessage is the WebSocket RPC message format.
 type rpcMessage struct {
-	ID     int64       `json:"id"`
-	Method string      `json:"method,omitempty"`
-	Params interface{} `json:"params,omitempty"`
-	Result interface{} `json:"result,omitempty"`
-	Error  *rpcError   `json:"error,omitempty"`
+	Type    string      `json:"type"`              // "req", "res", "event"
+	ID      int64       `json:"id,omitempty"`      // request/response correlation
+	Method  string      `json:"method,omitempty"`  // for requests
+	Params  interface{} `json:"params,omitempty"`  // for requests
+	Event   string      `json:"event,omitempty"`   // for events
+	Payload interface{} `json:"payload,omitempty"` // for events/responses
+	OK      *bool       `json:"ok,omitempty"`      // for responses
+	Error   *rpcError   `json:"error,omitempty"`   // for error responses
 }
 
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+}
+
+// connectChallenge is sent by Gateway before connect.
+type connectChallenge struct {
+	Nonce string `json:"nonce"`
+	Ts    int64  `json:"ts"`
 }
 
 // RPCClient is a WebSocket RPC client for OpenClaw Gateway.
@@ -61,6 +70,7 @@ type RPCClient struct {
 	pending    map[int64]chan *rpcMessage
 	pendingMu  sync.Mutex
 	connected  bool
+	readDone   chan struct{}
 }
 
 // NewRPCClient creates a new RPC client.
@@ -72,7 +82,7 @@ func NewRPCClient(gatewayURL, token string) *RPCClient {
 	}
 }
 
-// Connect establishes the WebSocket connection.
+// Connect establishes the WebSocket connection following OpenClaw protocol.
 func (c *RPCClient) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -92,11 +102,6 @@ func (c *RPCClient) Connect() error {
 		u.Scheme = "wss"
 	}
 
-	// Add auth token as query param
-	q := u.Query()
-	q.Set("token", c.token)
-	u.RawQuery = q.Encode()
-
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
@@ -107,25 +112,79 @@ func (c *RPCClient) Connect() error {
 	}
 
 	c.conn = conn
-	c.connected = true
+	c.readDone = make(chan struct{})
 
-	// Start reading responses
-	go c.readLoop()
+	// Wait for connect.challenge event from Gateway
+	var challengeMsg rpcMessage
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.ReadJSON(&challengeMsg); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to read challenge: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{}) // Clear deadline
 
-	// Send connect message
-	connectMsg := map[string]interface{}{
-		"method": "connect",
-		"params": map[string]interface{}{
+	if challengeMsg.Type != "event" || challengeMsg.Event != "connect.challenge" {
+		conn.Close()
+		return fmt.Errorf("expected connect.challenge event, got type=%s event=%s", challengeMsg.Type, challengeMsg.Event)
+	}
+
+	// Send connect request with proper protocol structure
+	connectReq := rpcMessage{
+		Type:   "req",
+		ID:     1,
+		Method: "connect",
+		Params: map[string]interface{}{
+			"minProtocol": 3,
+			"maxProtocol": 3,
+			"client": map[string]interface{}{
+				"id":       "ocm",
+				"version":  "0.1.0",
+				"platform": "linux",
+				"mode":     "operator",
+			},
+			"role":   "operator",
+			"scopes": []string{"operator.read", "operator.pairing"},
+			"caps":   []string{},
 			"auth": map[string]string{
 				"token": c.token,
 			},
+			"userAgent": "ocm/0.1.0",
 		},
 	}
-	if err := c.conn.WriteJSON(connectMsg); err != nil {
-		c.conn.Close()
-		c.connected = false
-		return fmt.Errorf("connect message failed: %w", err)
+
+	if err := conn.WriteJSON(connectReq); err != nil {
+		conn.Close()
+		return fmt.Errorf("connect request failed: %w", err)
 	}
+
+	// Wait for hello-ok response
+	var helloMsg rpcMessage
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.ReadJSON(&helloMsg); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to read hello response: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{})
+
+	if helloMsg.Type != "res" {
+		conn.Close()
+		return fmt.Errorf("expected response, got type=%s", helloMsg.Type)
+	}
+
+	if helloMsg.OK == nil || !*helloMsg.OK {
+		errMsg := "unknown error"
+		if helloMsg.Error != nil {
+			errMsg = helloMsg.Error.Message
+		}
+		conn.Close()
+		return fmt.Errorf("connect rejected: %s", errMsg)
+	}
+
+	c.connected = true
+	c.nextID = 1 // Reset after using 1 for connect
+
+	// Start reading responses
+	go c.readLoop()
 
 	return nil
 }
@@ -137,13 +196,18 @@ func (c *RPCClient) Close() error {
 
 	if c.conn != nil {
 		c.connected = false
-		return c.conn.Close()
+		err := c.conn.Close()
+		if c.readDone != nil {
+			<-c.readDone // Wait for read loop to exit
+		}
+		return err
 	}
 	return nil
 }
 
 // readLoop reads messages from the WebSocket.
 func (c *RPCClient) readLoop() {
+	defer close(c.readDone)
 	for {
 		var msg rpcMessage
 		err := c.conn.ReadJSON(&msg)
@@ -155,12 +219,15 @@ func (c *RPCClient) readLoop() {
 		}
 
 		// Route response to waiting caller
-		c.pendingMu.Lock()
-		if ch, ok := c.pending[msg.ID]; ok {
-			ch <- &msg
-			delete(c.pending, msg.ID)
+		if msg.Type == "res" && msg.ID > 0 {
+			c.pendingMu.Lock()
+			if ch, ok := c.pending[msg.ID]; ok {
+				ch <- &msg
+				delete(c.pending, msg.ID)
+			}
+			c.pendingMu.Unlock()
 		}
-		c.pendingMu.Unlock()
+		// Ignore events for now (could handle node.pair.requested etc.)
 	}
 }
 
@@ -180,6 +247,7 @@ func (c *RPCClient) call(method string, params interface{}) (*rpcMessage, error)
 	c.pendingMu.Unlock()
 
 	msg := rpcMessage{
+		Type:   "req",
 		ID:     id,
 		Method: method,
 		Params: params,
@@ -213,12 +281,16 @@ func (c *RPCClient) ListDevices() (*DeviceListResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", resp.Error.Message)
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("RPC error: %s", errMsg)
 	}
 
-	// Parse result
-	resultBytes, err := json.Marshal(resp.Result)
+	// Parse result from payload
+	resultBytes, err := json.Marshal(resp.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal result: %w", err)
 	}
@@ -239,8 +311,12 @@ func (c *RPCClient) ApproveDevice(requestID string) error {
 	if err != nil {
 		return err
 	}
-	if resp.Error != nil {
-		return fmt.Errorf("RPC error: %s", resp.Error.Message)
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+		}
+		return fmt.Errorf("RPC error: %s", errMsg)
 	}
 	return nil
 }
@@ -253,8 +329,12 @@ func (c *RPCClient) RejectDevice(requestID string) error {
 	if err != nil {
 		return err
 	}
-	if resp.Error != nil {
-		return fmt.Errorf("RPC error: %s", resp.Error.Message)
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+		}
+		return fmt.Errorf("RPC error: %s", errMsg)
 	}
 	return nil
 }

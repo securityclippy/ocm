@@ -543,27 +543,22 @@ func (h *adminHandler) jsonError(w http.ResponseWriter, message string, status i
 // Device pairing handlers
 
 func (h *adminHandler) listDevices(w http.ResponseWriter, r *http.Request) {
-	// If RPC not configured or connection fails, return empty list with a note
-	// This is expected when dangerouslyDisableDeviceAuth is enabled
 	if h.rpc == nil {
 		h.jsonResponse(w, map[string]interface{}{
-			"pending":  []gateway.PendingDevice{},
-			"paired":   []gateway.PairedDevice{},
-			"disabled": true,
-			"message":  "Device auth disabled or Gateway RPC not configured",
+			"pending": []gateway.PendingDevice{},
+			"paired":  []gateway.PairedDevice{},
+			"error":   "OPENCLAW_GATEWAY_TOKEN not configured - set it in docker-compose.yml",
 		})
 		return
 	}
 
 	devices, err := h.rpc.ListDevices()
 	if err != nil {
-		h.logger.Warn("list devices failed (device auth may be disabled)", "error", err)
-		// Return empty list instead of error - device auth is likely disabled
+		h.logger.Error("list devices failed", "error", err)
 		h.jsonResponse(w, map[string]interface{}{
-			"pending":  []gateway.PendingDevice{},
-			"paired":   []gateway.PairedDevice{},
-			"disabled": true,
-			"message":  fmt.Sprintf("Could not connect to Gateway: %v", err),
+			"pending": []gateway.PendingDevice{},
+			"paired":  []gateway.PairedDevice{},
+			"error":   fmt.Sprintf("Gateway RPC error: %v", err),
 		})
 		return
 	}
@@ -577,9 +572,8 @@ func (h *adminHandler) listDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.jsonResponse(w, map[string]interface{}{
-		"pending":  devices.Pending,
-		"paired":   devices.Paired,
-		"disabled": false,
+		"pending": devices.Pending,
+		"paired":  devices.Paired,
 	})
 }
 
