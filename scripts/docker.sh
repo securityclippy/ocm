@@ -51,18 +51,22 @@ else
         echo ""
         echo "⚠️  OpenClaw Docker image '$OPENCLAW_IMAGE' not found!"
         echo ""
-        echo "   Build it first in your OpenClaw repo:"
-        echo ""
-        echo "   cd /path/to/openclaw"
-        echo "   docker build -t openclaw:local ."
-        echo ""
-        echo "   Then run this script again."
-        echo ""
-        echo "   Or use OCM standalone: ./scripts/docker.sh ocm-only"
-        exit 1
+        read -p "   Build it now? (will clone and build from GitHub) [Y/n] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            echo ""
+            echo "   To build manually:"
+            echo "   ./scripts/build-openclaw.sh"
+            echo ""
+            echo "   Or use OCM standalone:"
+            echo "   ./scripts/docker.sh ocm-only"
+            exit 1
+        fi
+        
+        ./scripts/build-openclaw.sh
+    else
+        echo "✅ Found OpenClaw image: $OPENCLAW_IMAGE"
     fi
-    
-    echo "✅ Found OpenClaw image: $OPENCLAW_IMAGE"
     
     docker compose -f docker-compose.openclaw.yml up -d
     echo ""
