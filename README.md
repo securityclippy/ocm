@@ -32,24 +32,30 @@ OCM solves a fundamental security problem with AI agents: **credentials in the a
 
 ## Quick Start
 
+### One-Command Setup
+
+```bash
+# Docker (OCM + OpenClaw) - recommended
+./scripts/quickstart.sh docker
+
+# Or local development (requires Go + Node)
+./scripts/quickstart.sh local
+```
+
 ### Option 1: Docker with OpenClaw (Recommended)
 
 ```bash
-cd projects/ocm
+# Setup environment and build image
+./scripts/docker.sh
 
-# Copy environment template
-cp .env.example .env
+# This will:
+# - Create .env from template
+# - Generate master key
+# - Build OCM Docker image
+# - Start OCM + OpenClaw
 
-# Generate master key and add to .env
-./ocm keygen --stdout
-# Edit .env: OCM_MASTER_KEY=<paste key>
-# Edit .env: OPENCLAW_GATEWAY_TOKEN=<your token>
-
-# Start both services
-docker compose -f docker-compose.openclaw.yml up -d
-
-# Open admin UI
-open http://localhost:8080
+# Admin UI: http://localhost:8080
+# Gateway:  http://localhost:18789
 ```
 
 ### Option 2: Local Development
@@ -57,18 +63,34 @@ open http://localhost:8080
 **Prerequisites:** Go 1.22+, Node.js 20+, pnpm
 
 ```bash
-# Build everything (frontend + backend)
-just build
-# Or: make build
+# Setup and run
+./scripts/dev.sh
 
-# Generate and save master key
-./ocm keygen
-
-# Run the server
-./ocm serve
+# This will:
+# - Check prerequisites
+# - Generate master key (~/.ocm/master.key)
+# - Install frontend dependencies
+# - Build frontend + backend
+# - Start the server
 
 # Admin UI: http://localhost:8080
 # Agent API: http://localhost:9999
+```
+
+### Manual Setup
+
+If you prefer to do things manually:
+
+```bash
+# 1. Setup environment
+cp .env.example .env
+./ocm keygen --stdout  # Copy output to .env as OCM_MASTER_KEY
+
+# 2. Build
+just build  # or: make build
+
+# 3. Run
+./ocm serve
 ```
 
 ### Key Management
