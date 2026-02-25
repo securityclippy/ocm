@@ -40,7 +40,7 @@ type DeviceListResponse struct {
 // rpcMessage is the WebSocket RPC message format.
 type rpcMessage struct {
 	Type    string      `json:"type"`              // "req", "res", "event"
-	ID      int64       `json:"id,omitempty"`      // request/response correlation
+	ID      string      `json:"id,omitempty"`      // request/response correlation (string!)
 	Method  string      `json:"method,omitempty"`  // for requests
 	Params  interface{} `json:"params,omitempty"`  // for requests
 	Event   string      `json:"event,omitempty"`   // for events
@@ -66,8 +66,8 @@ type RPCClient struct {
 	token      string
 	conn       *websocket.Conn
 	mu         sync.Mutex
-	nextID     int64
-	pending    map[int64]chan *rpcMessage
+	nextID     uint64
+	pending    map[string]chan *rpcMessage
 	pendingMu  sync.Mutex
 	connected  bool
 	readDone   chan struct{}
@@ -78,7 +78,7 @@ func NewRPCClient(gatewayURL, token string) *RPCClient {
 	return &RPCClient{
 		gatewayURL: gatewayURL,
 		token:      token,
-		pending:    make(map[int64]chan *rpcMessage),
+		pending:    make(map[string]chan *rpcMessage),
 	}
 }
 
@@ -131,7 +131,7 @@ func (c *RPCClient) Connect() error {
 	// Send connect request with proper protocol structure
 	connectReq := rpcMessage{
 		Type:   "req",
-		ID:     1,
+		ID:     "1",
 		Method: "connect",
 		Params: map[string]interface{}{
 			"minProtocol": 3,
@@ -181,7 +181,7 @@ func (c *RPCClient) Connect() error {
 	}
 
 	c.connected = true
-	c.nextID = 1 // Reset after using 1 for connect
+	c.nextID = 1 // Start from 2 for subsequent calls (1 used for connect)
 
 	// Start reading responses
 	go c.readLoop()
@@ -219,7 +219,7 @@ func (c *RPCClient) readLoop() {
 		}
 
 		// Route response to waiting caller
-		if msg.Type == "res" && msg.ID > 0 {
+		if msg.Type == "res" && msg.ID != "" {
 			c.pendingMu.Lock()
 			if ch, ok := c.pending[msg.ID]; ok {
 				ch <- &msg
@@ -239,7 +239,7 @@ func (c *RPCClient) call(method string, params interface{}) (*rpcMessage, error)
 		}
 	}
 
-	id := atomic.AddInt64(&c.nextID, 1)
+	id := fmt.Sprintf("%d", atomic.AddUint64(&c.nextID, 1))
 	ch := make(chan *rpcMessage, 1)
 
 	c.pendingMu.Lock()
