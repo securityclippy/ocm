@@ -37,6 +37,11 @@ func NewService(s *store.Store, g *gateway.Client, logger *slog.Logger) *Service
 	return svc
 }
 
+// Gateway returns the Gateway client for direct access (e.g., setup flow).
+func (s *Service) Gateway() *gateway.Client {
+	return s.gateway
+}
+
 // ApproveElevation approves an elevation request and injects the credential.
 func (s *Service) ApproveElevation(elevationID string, ttl time.Duration, approvedBy string) error {
 	s.mu.Lock()

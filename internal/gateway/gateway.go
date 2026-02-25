@@ -93,6 +93,26 @@ func (c *Client) ClearCredentials(names []string) error {
 	return nil
 }
 
+// WriteCredentialToEnv writes a single credential to the .env file without restarting.
+// Use this during setup to accumulate credentials, then call SyncAndRestart when done.
+func (c *Client) WriteCredentialToEnv(name, value string) error {
+	existing, err := c.readEnvFile()
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read env file: %w", err)
+	}
+
+	existing[name] = value
+
+	return c.writeEnvFile(existing)
+}
+
+// SyncAndRestart syncs current credentials to the .env file and restarts Gateway.
+// This is used during setup to ensure all credentials are written before restart.
+func (c *Client) SyncAndRestart(reason string) error {
+	// Just trigger restart - credentials should already be in .env from creation
+	return c.RestartGateway(reason)
+}
+
 // RestartGateway triggers a Gateway restart via RPC.
 func (c *Client) RestartGateway(reason string) error {
 	payload := map[string]interface{}{

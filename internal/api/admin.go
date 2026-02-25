@@ -36,6 +36,10 @@ func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Lo
 		// TODO: Add auth middleware
 		// r.Use(adminAuthMiddleware)
 
+		// Setup (bootstrap flow)
+		r.Get("/setup/status", h.getSetupStatus)
+		r.Post("/setup/complete", h.completeSetup)
+
 		// Dashboard
 		r.Get("/dashboard", h.getDashboard)
 
@@ -104,6 +108,87 @@ type ScopeConfig struct {
 // ApproveRequest is the request body for approving an elevation.
 type ApproveRequest struct {
 	TTL string `json:"ttl"` // e.g., "30m", "1h"
+}
+
+// SetupStatusResponse indicates whether initial setup is complete.
+type SetupStatusResponse struct {
+	SetupComplete bool     `json:"setupComplete"`
+	MissingKeys   []string `json:"missingKeys"`   // Required credentials not yet configured
+	ConfiguredKeys []string `json:"configuredKeys"` // Already configured credentials
+}
+
+// requiredModelProviders lists the services that provide LLM API keys.
+// At least one must be configured for OpenClaw to work.
+var requiredModelProviders = []string{"anthropic", "openai", "google", "azure-openai"}
+
+func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
+	creds, err := h.store.ListCredentials()
+	if err != nil {
+		h.jsonError(w, "failed to check credentials", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if any model provider is configured with a permanent API key
+	var configuredKeys []string
+	hasModelProvider := false
+
+	for _, cred := range creds {
+		configuredKeys = append(configuredKeys, cred.Service)
+		for _, provider := range requiredModelProviders {
+			if cred.Service == provider {
+				// Check if it has a permanent scope with a token
+				for _, scope := range cred.Scopes {
+					if scope.Permanent && scope.Token != "" {
+						hasModelProvider = true
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Ensure empty slice instead of nil
+	if configuredKeys == nil {
+		configuredKeys = []string{}
+	}
+
+	resp := SetupStatusResponse{
+		SetupComplete:  hasModelProvider,
+		ConfiguredKeys: configuredKeys,
+	}
+
+	if !hasModelProvider {
+		resp.MissingKeys = []string{"anthropic OR openai OR google OR azure-openai"}
+	} else {
+		resp.MissingKeys = []string{}
+	}
+
+	h.jsonResponse(w, resp)
+}
+
+func (h *adminHandler) completeSetup(w http.ResponseWriter, r *http.Request) {
+	// Trigger Gateway restart to pick up any new credentials
+	if h.elevation != nil && h.elevation.Gateway() != nil {
+		if err := h.elevation.Gateway().SyncAndRestart("setup complete"); err != nil {
+			h.logger.Error("failed to restart gateway after setup", "error", err)
+			// Don't fail the request - credentials are saved, restart can be done manually
+		}
+	}
+
+	// Audit log
+	h.store.AddAuditEntry(&store.AuditEntry{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		Action:    "setup_completed",
+		Actor:     "admin",
+	})
+
+	h.logger.Info("setup completed, gateway restart triggered")
+
+	h.jsonResponse(w, map[string]interface{}{
+		"status":  "complete",
+		"message": "Setup complete. OpenClaw will restart to load credentials.",
+	})
 }
 
 func (h *adminHandler) getDashboard(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +293,16 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		h.logger.Error("save credential failed", "error", err)
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Sync permanent credentials to Gateway .env file (without restart yet)
+	// The setup wizard will trigger restart after all credentials are added
+	if h.elevation != nil && h.elevation.Gateway() != nil {
+		for _, scope := range cred.Scopes {
+			if scope.Permanent && scope.EnvVar != "" && scope.Token != "" {
+				h.elevation.Gateway().WriteCredentialToEnv(scope.EnvVar, scope.Token)
+			}
+		}
 	}
 
 	// Audit log

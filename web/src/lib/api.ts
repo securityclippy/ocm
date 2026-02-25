@@ -14,6 +14,7 @@ export interface Credential {
 
 export interface Scope {
 	name: string;
+	envVar?: string;
 	permanent: boolean;
 	requiresApproval: boolean;
 	maxTTL: number;
@@ -52,11 +53,18 @@ export interface DashboardData {
 	pending: Elevation[];
 }
 
+export interface SetupStatus {
+	setupComplete: boolean;
+	missingKeys: string[];
+	configuredKeys: string[];
+}
+
 export interface CreateCredentialRequest {
 	service: string;
 	displayName: string;
 	type: string;
 	scopes: Record<string, {
+		envVar: string;
 		permanent: boolean;
 		requiresApproval: boolean;
 		maxTTL: string;
@@ -83,6 +91,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+	// Setup
+	getSetupStatus: () => request<SetupStatus>('/setup/status'),
+	completeSetup: () => request<{ status: string; message: string }>('/setup/complete', { method: 'POST' }),
+
 	// Dashboard
 	getDashboard: () => request<DashboardData>('/dashboard'),
 
