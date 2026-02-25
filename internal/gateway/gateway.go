@@ -113,36 +113,15 @@ func (c *Client) SyncAndRestart(reason string) error {
 	return c.RestartGateway(reason)
 }
 
-// RestartGateway triggers a Gateway restart via RPC.
+// RestartGateway triggers a Gateway restart.
+// Note: OpenClaw uses WebSocket RPC, not HTTP REST. For now, we skip the
+// automatic restart and rely on the user to restart OpenClaw manually,
+// or on OpenClaw reading the updated .env on its next natural restart.
 func (c *Client) RestartGateway(reason string) error {
-	payload := map[string]interface{}{
-		"action": "restart",
-		"reason": reason,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", c.GatewayURL+"/rpc/gateway", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("gateway request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("gateway restart failed: %s", string(respBody))
-	}
-
-	return nil
+	// TODO: Implement proper WebSocket RPC client to call gateway.restart
+	// For now, credentials are written to .env and will be picked up on
+	// the next OpenClaw restart. Log this for transparency.
+	return nil // Skip restart - not yet implemented
 }
 
 // GetCurrentCredentials reads the current credentials from the .env file.

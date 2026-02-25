@@ -11,9 +11,12 @@
 #   OPENCLAW_GATEWAY_TOKEN - Gateway auth token
 #   OCM_MASTER_KEY - 64 hex chars for credential encryption
 #
-# Required paths:
-#   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw (or Docker volume)
-#   OPENCLAW_WORKSPACE_DIR - Host path to workspace (or Docker volume)
+# Required paths (RECOMMENDED: use host paths to avoid permission issues):
+#   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw (e.g., /home/youruser/.openclaw)
+#   OPENCLAW_WORKSPACE_DIR - Host path to workspace (e.g., /home/youruser/.openclaw/workspace)
+#
+# If using Docker volumes instead of host paths, run this first to fix permissions:
+#   docker run --rm -v openclaw-config:/data alpine chown -R 1000:1000 /data
 #
 # Optional:
 #   OPENCLAW_IMAGE - Defaults to openclaw:local
