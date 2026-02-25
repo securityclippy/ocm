@@ -55,19 +55,22 @@ OCM solves a fundamental security problem with AI agents: **credentials in the a
 
 ### Option 2: Docker - OCM + OpenClaw
 
-**Note:** OpenClaw doesn't have a public Docker image yet. Build it first:
-
 ```bash
-# Build OpenClaw image (one-time)
-cd /path/to/openclaw
-docker build -t openclaw:local .
-
-# Then run OCM + OpenClaw
-cd /path/to/ocm
 ./scripts/docker.sh
+
+# If openclaw:local image doesn't exist, you'll be prompted:
+#   "Build it now? (will clone and build from GitHub) [Y/n]"
+# 
+# Say yes - it clones OpenClaw to a temp dir, builds the image, cleans up.
 
 # Admin UI: http://localhost:8080
 # Gateway:  http://localhost:18789
+```
+
+Or build the OpenClaw image separately:
+```bash
+./scripts/build-openclaw.sh
+./scripts/docker.sh
 ```
 
 ### Option 3: Local Development
