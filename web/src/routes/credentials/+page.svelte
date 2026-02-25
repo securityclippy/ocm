@@ -312,6 +312,24 @@
 				{#if modalStep === 'select'}
 					<!-- Service Selection -->
 					<div class="space-y-6">
+						<!-- Docs link -->
+						<div class="p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
+							<span class="text-sm text-gray-600">
+								Looking for a different integration?
+							</span>
+							<a 
+								href="https://docs.openclaw.ai/channels" 
+								target="_blank" 
+								rel="noopener"
+								class="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+							>
+								View all OpenClaw integrations
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+								</svg>
+							</a>
+						</div>
+
 						{#each groupedTemplates as group}
 							<div>
 								<h3 class="text-sm font-medium text-gray-500 mb-3">{group.label}</h3>
