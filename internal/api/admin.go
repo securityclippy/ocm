@@ -543,15 +543,28 @@ func (h *adminHandler) jsonError(w http.ResponseWriter, message string, status i
 // Device pairing handlers
 
 func (h *adminHandler) listDevices(w http.ResponseWriter, r *http.Request) {
+	// If RPC not configured or connection fails, return empty list with a note
+	// This is expected when dangerouslyDisableDeviceAuth is enabled
 	if h.rpc == nil {
-		h.jsonError(w, "Gateway RPC not configured", http.StatusServiceUnavailable)
+		h.jsonResponse(w, map[string]interface{}{
+			"pending":  []gateway.PendingDevice{},
+			"paired":   []gateway.PairedDevice{},
+			"disabled": true,
+			"message":  "Device auth disabled or Gateway RPC not configured",
+		})
 		return
 	}
 
 	devices, err := h.rpc.ListDevices()
 	if err != nil {
-		h.logger.Error("list devices failed", "error", err)
-		h.jsonError(w, fmt.Sprintf("failed to list devices: %v", err), http.StatusBadGateway)
+		h.logger.Warn("list devices failed (device auth may be disabled)", "error", err)
+		// Return empty list instead of error - device auth is likely disabled
+		h.jsonResponse(w, map[string]interface{}{
+			"pending":  []gateway.PendingDevice{},
+			"paired":   []gateway.PairedDevice{},
+			"disabled": true,
+			"message":  fmt.Sprintf("Could not connect to Gateway: %v", err),
+		})
 		return
 	}
 
@@ -563,7 +576,11 @@ func (h *adminHandler) listDevices(w http.ResponseWriter, r *http.Request) {
 		devices.Paired = []gateway.PairedDevice{}
 	}
 
-	h.jsonResponse(w, devices)
+	h.jsonResponse(w, map[string]interface{}{
+		"pending":  devices.Pending,
+		"paired":   devices.Paired,
+		"disabled": false,
+	})
 }
 
 func (h *adminHandler) approveDevice(w http.ResponseWriter, r *http.Request) {
