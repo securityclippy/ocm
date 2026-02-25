@@ -17,6 +17,7 @@ export interface ServiceTemplate {
 	category: 'channel' | 'provider' | 'tool' | 'integration';
 	description: string;
 	docsUrl?: string;
+	setupInstructions?: string; // Multi-line setup steps
 	fields: FieldConfig[];
 	// Elevation config: which operations need approval
 	elevationConfig?: {
@@ -237,16 +238,14 @@ export const serviceTemplates: ServiceTemplate[] = [
 		id: 'gmail',
 		name: 'Gmail',
 		category: 'integration',
-		description: 'Gmail read/send via gogcli OAuth',
+		description: 'Gmail read/send via Google OAuth',
 		docsUrl: 'https://docs.openclaw.ai/automation/gmail-pubsub',
+		setupInstructions: `1. Install gogcli: brew install steipete/tap/gogcli
+2. Get OAuth client JSON from Google Cloud Console
+3. Store credentials: gog auth credentials ~/Downloads/client_secret.json
+4. Authorize account: gog auth add you@gmail.com
+5. Complete OAuth in browser, copy the tokens below`,
 		fields: [
-			{
-				name: 'notice',
-				label: 'Setup Required',
-				envVar: '',
-				type: 'text',
-				helpText: 'Gmail uses OAuth via gogcli. Run: openclaw webhooks gmail setup --account you@gmail.com'
-			},
 			{
 				name: 'account',
 				label: 'Gmail Account',
@@ -254,7 +253,39 @@ export const serviceTemplates: ServiceTemplate[] = [
 				type: 'text',
 				placeholder: 'you@gmail.com',
 				required: true,
-				helpText: 'The Gmail account authorized with gogcli'
+				helpText: 'The Gmail account to use'
+			},
+			{
+				name: 'accessToken',
+				label: 'Access Token',
+				envVar: 'GMAIL_ACCESS_TOKEN',
+				type: 'password',
+				required: true,
+				helpText: 'OAuth access token from gog auth flow'
+			},
+			{
+				name: 'refreshToken',
+				label: 'Refresh Token',
+				envVar: 'GMAIL_REFRESH_TOKEN',
+				type: 'password',
+				required: true,
+				helpText: 'OAuth refresh token (for auto-renewal)'
+			},
+			{
+				name: 'clientId',
+				label: 'Client ID',
+				envVar: 'GMAIL_CLIENT_ID',
+				type: 'text',
+				required: true,
+				helpText: 'From your Google Cloud OAuth client'
+			},
+			{
+				name: 'clientSecret',
+				label: 'Client Secret',
+				envVar: 'GMAIL_CLIENT_SECRET',
+				type: 'password',
+				required: true,
+				helpText: 'From your Google Cloud OAuth client'
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '1h' }
@@ -263,16 +294,14 @@ export const serviceTemplates: ServiceTemplate[] = [
 		id: 'google-calendar',
 		name: 'Google Calendar',
 		category: 'integration',
-		description: 'Calendar access via gogcli OAuth',
+		description: 'Calendar access via Google OAuth',
 		docsUrl: 'https://gogcli.sh',
+		setupInstructions: `1. Install gogcli: brew install steipete/tap/gogcli
+2. Get OAuth client JSON from Google Cloud Console
+3. Store credentials: gog auth credentials ~/Downloads/client_secret.json
+4. Authorize account: gog auth add you@gmail.com --services calendar
+5. Complete OAuth in browser, copy the tokens below`,
 		fields: [
-			{
-				name: 'notice',
-				label: 'Setup Required',
-				envVar: '',
-				type: 'text',
-				helpText: 'Calendar uses OAuth via gogcli. Run: gog auth login --account you@gmail.com'
-			},
 			{
 				name: 'account',
 				label: 'Google Account',
@@ -280,7 +309,39 @@ export const serviceTemplates: ServiceTemplate[] = [
 				type: 'text',
 				placeholder: 'you@gmail.com',
 				required: true,
-				helpText: 'The Google account authorized with gogcli'
+				helpText: 'The Google account to use'
+			},
+			{
+				name: 'accessToken',
+				label: 'Access Token',
+				envVar: 'GOOGLE_CALENDAR_ACCESS_TOKEN',
+				type: 'password',
+				required: true,
+				helpText: 'OAuth access token from gog auth flow'
+			},
+			{
+				name: 'refreshToken',
+				label: 'Refresh Token',
+				envVar: 'GOOGLE_CALENDAR_REFRESH_TOKEN',
+				type: 'password',
+				required: true,
+				helpText: 'OAuth refresh token (for auto-renewal)'
+			},
+			{
+				name: 'clientId',
+				label: 'Client ID',
+				envVar: 'GOOGLE_CALENDAR_CLIENT_ID',
+				type: 'text',
+				required: true,
+				helpText: 'From your Google Cloud OAuth client'
+			},
+			{
+				name: 'clientSecret',
+				label: 'Client Secret',
+				envVar: 'GOOGLE_CALENDAR_CLIENT_SECRET',
+				type: 'password',
+				required: true,
+				helpText: 'From your Google Cloud OAuth client'
 			}
 		],
 		elevationConfig: { readOnly: true }

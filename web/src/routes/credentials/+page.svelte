@@ -391,6 +391,13 @@
 								</div>
 							{/if}
 
+							{#if selectedTemplate.setupInstructions}
+								<div class="p-4 bg-amber-50 border border-amber-200 rounded">
+									<h4 class="text-sm font-medium text-amber-800 mb-2">⚙️ Setup Steps</h4>
+									<pre class="text-xs text-amber-700 whitespace-pre-wrap font-mono">{selectedTemplate.setupInstructions}</pre>
+								</div>
+							{/if}
+
 							{#each selectedTemplate.fields as field}
 								<div>
 									<label class="block text-sm font-medium text-gray-700 mb-1" for={field.name}>
