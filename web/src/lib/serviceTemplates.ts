@@ -194,15 +194,28 @@ Alternative: Browser token (short-lived, expires on logout)
 		name: 'Anthropic',
 		category: 'provider',
 		description: 'Direct access to Claude models',
-		docsUrl: 'https://docs.anthropic.com',
+		docsUrl: 'https://console.anthropic.com',
+		setupInstructions: `Option 1: API Key (recommended for API access)
+1. Go to console.anthropic.com → API Keys
+2. Create a new key and copy it (sk-ant-...)
+
+Option 2: Claude Code Token (for Claude Pro/Max subscribers)
+If you have a Claude subscription and Claude Code CLI installed:
+1. Run: claude setup-token
+2. Follow the prompts to authenticate
+3. Copy the token that's generated
+
+The setup-token is long-lived and works with your subscription.
+Use an API key if you need standard API access with usage-based billing.`,
 		fields: [
 			{
 				name: 'apiKey',
-				label: 'API Key',
+				label: 'API Key or Setup Token',
 				envVar: 'ANTHROPIC_API_KEY',
 				type: 'password',
-				placeholder: 'sk-ant-...',
-				required: true
+				placeholder: 'sk-ant-... or setup token',
+				required: true,
+				helpText: 'API key from console.anthropic.com OR token from `claude setup-token`'
 			}
 		],
 		elevationConfig: { readOnly: true }
