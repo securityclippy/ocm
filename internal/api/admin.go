@@ -137,7 +137,9 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if any model provider is configured with a permanent API key
+	// Check if any model provider is configured
+	// Note: ListCredentials() clears tokens for security, so we just check
+	// if a provider credential exists (if it was created, it has a token)
 	var configuredKeys []string
 	hasModelProvider := false
 
@@ -145,13 +147,9 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		configuredKeys = append(configuredKeys, cred.Service)
 		for _, provider := range requiredModelProviders {
 			if cred.Service == provider {
-				// Check if it has a permanent scope with a token
-				for _, scope := range cred.Scopes {
-					if scope.Permanent && scope.Token != "" {
-						hasModelProvider = true
-						break
-					}
-				}
+				// Provider credential exists - setup is complete
+				hasModelProvider = true
+				break
 			}
 		}
 	}
