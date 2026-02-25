@@ -41,3 +41,5 @@ ocm-data/
 # Environment
 .env
 .env.local
+ocm.db-shm
+ocm.db-wal

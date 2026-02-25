@@ -1,7 +1,6 @@
 package api
 
 import (
-	"embed"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -10,13 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/openclaw/ocm/internal"
 	"github.com/openclaw/ocm/internal/elevation"
 	"github.com/openclaw/ocm/internal/store"
 )
-
-// WebAssets holds the embedded SvelteKit build.
-// This is set from the main package.
-var WebAssets embed.FS
 
 // NewAdminRouter creates the router for admin API/UI (:8080).
 // This API is for human administrators and includes:
@@ -425,12 +421,12 @@ func (h *adminHandler) jsonError(w http.ResponseWriter, message string, status i
 }
 
 // spaHandler serves the SvelteKit SPA with fallback to index.html.
-func spaHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve from embedded assets
-		webRoot, err := fs.Sub(WebAssets, "web/build")
-		if err != nil {
-			// No embedded assets yet - serve placeholder
+func spaHandler() http.Handler {
+	// Try to get embedded assets
+	webRoot, err := fs.Sub(internal.WebAssets, "web/build")
+	if err != nil {
+		// No embedded assets - serve placeholder
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
 			w.Write([]byte(`<!DOCTYPE html>
 <html>
@@ -441,35 +437,27 @@ func spaHandler() http.HandlerFunc {
 <p><a href="/admin/api/dashboard">API Dashboard</a></p>
 </body>
 </html>`))
-			return
-		}
+		})
+	}
 
-		// Serve static file or fall back to index.html
+	// Create file server with SPA fallback
+	fileServer := http.FileServer(http.FS(webRoot))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/" {
-			path = "/index.html"
-		}
 
-		// Try to open the file
-		f, err := webRoot.Open(path[1:]) // Remove leading /
-		if err != nil {
-			// Fall back to index.html for SPA routing
-			f, err = webRoot.Open("index.html")
-			if err != nil {
-				http.NotFound(w, r)
+		// Check if file exists
+		if path != "/" {
+			_, err := fs.Stat(webRoot, path[1:]) // Remove leading /
+			if err == nil {
+				// File exists, serve it
+				fileServer.ServeHTTP(w, r)
 				return
 			}
 		}
-		defer f.Close()
 
-		// Get file info for content type
-		stat, _ := f.Stat()
-		if stat.IsDir() {
-			f, _ = webRoot.Open("index.html")
-			stat, _ = f.Stat()
-		}
-
-		// Serve the file
-		http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(http.File))
-	}
+		// Fall back to index.html for SPA routing
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
 }
