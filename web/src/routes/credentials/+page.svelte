@@ -6,6 +6,16 @@
 	let loading = true;
 	let error = '';
 	let showAddModal = false;
+	let saving = false;
+	let saveError = '';
+
+	// Form state
+	let newCred = {
+		service: '',
+		displayName: '',
+		type: 'oauth2',
+		scopes: [{ name: 'default', envVar: '', token: '', requiresApproval: true, permanent: false, maxTTL: '1h' }]
+	};
 
 	onMount(async () => {
 		await loadCredentials();
@@ -42,6 +52,66 @@
 		if (!seconds) return 'N/A';
 		if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
 		return `${Math.floor(seconds / 3600)}h`;
+	}
+
+	function resetForm() {
+		newCred = {
+			service: '',
+			displayName: '',
+			type: 'oauth2',
+			scopes: [{ name: 'default', envVar: '', token: '', requiresApproval: true, permanent: false, maxTTL: '1h' }]
+		};
+		saveError = '';
+	}
+
+	function closeModal() {
+		showAddModal = false;
+		resetForm();
+	}
+
+	function addScope() {
+		newCred.scopes = [...newCred.scopes, { name: '', envVar: '', token: '', requiresApproval: true, permanent: false, maxTTL: '1h' }];
+	}
+
+	function removeScope(index: number) {
+		newCred.scopes = newCred.scopes.filter((_, i) => i !== index);
+	}
+
+	async function saveCredential() {
+		if (!newCred.service || !newCred.displayName) {
+			saveError = 'Service ID and Display Name are required';
+			return;
+		}
+
+		// Convert scopes array to object
+		const scopesObj: Record<string, any> = {};
+		for (const scope of newCred.scopes) {
+			if (!scope.name) continue;
+			scopesObj[scope.name] = {
+				envVar: scope.envVar,
+				token: scope.token,
+				requiresApproval: scope.requiresApproval,
+				permanent: scope.permanent,
+				maxTTL: scope.maxTTL
+			};
+		}
+
+		saving = true;
+		saveError = '';
+		try {
+			await api.createCredential({
+				service: newCred.service,
+				displayName: newCred.displayName,
+				type: newCred.type,
+				scopes: scopesObj
+			});
+			closeModal();
+			await loadCredentials();
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : 'Failed to save credential';
+		} finally {
+			saving = false;
+		}
 	}
 </script>
 
@@ -142,4 +212,149 @@
 	{/if}
 </div>
 
-<!-- TODO: Add modal for creating credentials -->
+<!-- Add Credential Modal -->
+{#if showAddModal}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+		<div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+			<div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900">Add Credential</h2>
+				<button class="text-gray-400 hover:text-gray-600" on:click={closeModal}>
+					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+
+			<div class="p-6 space-y-4">
+				{#if saveError}
+					<div class="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+						{saveError}
+					</div>
+				{/if}
+
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Service ID</label>
+						<input
+							type="text"
+							bind:value={newCred.service}
+							placeholder="gmail, github, etc."
+							class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+						/>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+						<input
+							type="text"
+							bind:value={newCred.displayName}
+							placeholder="Gmail API, GitHub, etc."
+							class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+						/>
+					</div>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+					<select
+						bind:value={newCred.type}
+						class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+					>
+						<option value="oauth2">OAuth2</option>
+						<option value="api_key">API Key</option>
+						<option value="token">Token</option>
+						<option value="password">Username/Password</option>
+					</select>
+				</div>
+
+				<div>
+					<div class="flex items-center justify-between mb-2">
+						<label class="block text-sm font-medium text-gray-700">Scopes</label>
+						<button type="button" class="text-sm text-primary-600 hover:text-primary-700" on:click={addScope}>
+							+ Add Scope
+						</button>
+					</div>
+
+					<div class="space-y-3">
+						{#each newCred.scopes as scope, i}
+							<div class="p-4 bg-gray-50 rounded-lg space-y-3">
+								<div class="flex items-center justify-between">
+									<span class="text-sm font-medium text-gray-600">Scope {i + 1}</span>
+									{#if newCred.scopes.length > 1}
+										<button type="button" class="text-red-500 hover:text-red-700 text-sm" on:click={() => removeScope(i)}>
+											Remove
+										</button>
+									{/if}
+								</div>
+
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<label class="block text-xs text-gray-500 mb-1">Scope Name</label>
+										<input
+											type="text"
+											bind:value={scope.name}
+											placeholder="read, write, send, etc."
+											class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+										/>
+									</div>
+									<div>
+										<label class="block text-xs text-gray-500 mb-1">Environment Variable</label>
+										<input
+											type="text"
+											bind:value={scope.envVar}
+											placeholder="GMAIL_TOKEN"
+											class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+										/>
+									</div>
+								</div>
+
+								<div>
+									<label class="block text-xs text-gray-500 mb-1">Token/Secret</label>
+									<input
+										type="password"
+										bind:value={scope.token}
+										placeholder="Enter token or secret..."
+										class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+									/>
+								</div>
+
+								<div class="grid grid-cols-3 gap-3">
+									<div>
+										<label class="block text-xs text-gray-500 mb-1">Max TTL</label>
+										<select bind:value={scope.maxTTL} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+											<option value="15m">15 minutes</option>
+											<option value="30m">30 minutes</option>
+											<option value="1h">1 hour</option>
+											<option value="2h">2 hours</option>
+											<option value="4h">4 hours</option>
+											<option value="8h">8 hours</option>
+											<option value="24h">24 hours</option>
+										</select>
+									</div>
+									<div class="flex items-center pt-5">
+										<label class="flex items-center gap-2 text-sm">
+											<input type="checkbox" bind:checked={scope.requiresApproval} class="rounded" />
+											Requires Approval
+										</label>
+									</div>
+									<div class="flex items-center pt-5">
+										<label class="flex items-center gap-2 text-sm">
+											<input type="checkbox" bind:checked={scope.permanent} class="rounded" />
+											Permanent Access
+										</label>
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			</div>
+
+			<div class="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+				<button class="btn btn-secondary" on:click={closeModal}>Cancel</button>
+				<button class="btn btn-primary" on:click={saveCredential} disabled={saving}>
+					{saving ? 'Saving...' : 'Save Credential'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
