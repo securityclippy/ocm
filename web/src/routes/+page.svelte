@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type DashboardData } from '$lib/api';
+	import PendingDevices from '$lib/components/PendingDevices.svelte';
 	import PendingRequests from '$lib/components/PendingRequests.svelte';
 	import RecentActivity from '$lib/components/RecentActivity.svelte';
 
@@ -49,6 +50,9 @@
 			<p class="text-red-700">{error}</p>
 		</div>
 	{:else if dashboard}
+		<!-- Device Pairing Requests -->
+		<PendingDevices />
+
 		<!-- Stats -->
 		<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 			<div class="card p-6">

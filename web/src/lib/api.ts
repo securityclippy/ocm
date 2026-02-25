@@ -59,6 +59,26 @@ export interface SetupStatus {
 	configuredKeys: string[];
 }
 
+export interface PendingDevice {
+	requestId: string;
+	deviceId: string;
+	role: string;
+	origin: string;
+	userAgent: string;
+	createdAt: number;
+}
+
+export interface PairedDevice {
+	deviceId: string;
+	role: string;
+	createdAt: number;
+}
+
+export interface DeviceList {
+	pending: PendingDevice[];
+	paired: PairedDevice[];
+}
+
 export interface CreateCredentialRequest {
 	service: string;
 	displayName: string;
@@ -128,5 +148,12 @@ export const api = {
 
 	// Audit
 	listAuditEntries: (service?: string) =>
-		request<AuditEntry[]>(`/audit${service ? `?service=${service}` : ''}`)
+		request<AuditEntry[]>(`/audit${service ? `?service=${service}` : ''}`),
+
+	// Device pairing
+	listDevices: () => request<DeviceList>('/devices'),
+	approveDevice: (requestId: string) =>
+		request<{ status: string; requestId: string }>(`/devices/${requestId}/approve`, { method: 'POST' }),
+	rejectDevice: (requestId: string) =>
+		request<{ status: string; requestId: string }>(`/devices/${requestId}/reject`, { method: 'POST' })
 };

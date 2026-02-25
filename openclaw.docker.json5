@@ -6,8 +6,7 @@
       enabled: true,
       // Allow CORS from any origin using Host header (safe for local/dev)
       dangerouslyAllowHostHeaderOriginFallback: true,
-      // Skip device pairing for simpler local/dev setup
-      dangerouslyDisableDeviceAuth: true,
+      // Device pairing is enabled - approve devices via OCM admin UI
     },
   },
 }

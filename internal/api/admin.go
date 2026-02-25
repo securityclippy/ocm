@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/openclaw/ocm/internal"
 	"github.com/openclaw/ocm/internal/elevation"
+	"github.com/openclaw/ocm/internal/gateway"
 	"github.com/openclaw/ocm/internal/store"
 )
 
@@ -18,9 +20,10 @@ import (
 // This API is for human administrators and includes:
 // - Credential management
 // - Elevation approval/denial
+// - Device pairing management
 // - Audit log viewing
 // - Web UI serving
-func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Logger) chi.Router {
+func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, rpcClient *gateway.RPCClient, logger *slog.Logger) chi.Router {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -29,7 +32,7 @@ func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Lo
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	h := &adminHandler{store: db, elevation: elevSvc, logger: logger}
+	h := &adminHandler{store: db, elevation: elevSvc, rpc: rpcClient, logger: logger}
 
 	// API routes (protected by auth middleware)
 	r.Route("/admin/api", func(r chi.Router) {
@@ -58,6 +61,11 @@ func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Lo
 
 		// Audit
 		r.Get("/audit", h.listAuditEntries)
+
+		// Device pairing (OpenClaw integration)
+		r.Get("/devices", h.listDevices)
+		r.Post("/devices/{requestId}/approve", h.approveDevice)
+		r.Post("/devices/{requestId}/reject", h.rejectDevice)
 	})
 
 	// Health check
@@ -75,6 +83,7 @@ func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Lo
 type adminHandler struct {
 	store     *store.Store
 	elevation *elevation.Service
+	rpc       *gateway.RPCClient
 	logger    *slog.Logger
 }
 
@@ -531,6 +540,94 @@ func (h *adminHandler) jsonError(w http.ResponseWriter, message string, status i
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// Device pairing handlers
+
+func (h *adminHandler) listDevices(w http.ResponseWriter, r *http.Request) {
+	if h.rpc == nil {
+		h.jsonError(w, "Gateway RPC not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	devices, err := h.rpc.ListDevices()
+	if err != nil {
+		h.logger.Error("list devices failed", "error", err)
+		h.jsonError(w, fmt.Sprintf("failed to list devices: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	// Ensure empty slices instead of nil
+	if devices.Pending == nil {
+		devices.Pending = []gateway.PendingDevice{}
+	}
+	if devices.Paired == nil {
+		devices.Paired = []gateway.PairedDevice{}
+	}
+
+	h.jsonResponse(w, devices)
+}
+
+func (h *adminHandler) approveDevice(w http.ResponseWriter, r *http.Request) {
+	if h.rpc == nil {
+		h.jsonError(w, "Gateway RPC not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	requestID := chi.URLParam(r, "requestId")
+	if requestID == "" {
+		h.jsonError(w, "requestId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.rpc.ApproveDevice(requestID); err != nil {
+		h.logger.Error("approve device failed", "error", err, "requestId", requestID)
+		h.jsonError(w, fmt.Sprintf("failed to approve device: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	// Audit log
+	h.store.AddAuditEntry(&store.AuditEntry{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		Action:    "device_approved",
+		Details:   fmt.Sprintf("requestId: %s", requestID),
+		Actor:     "admin",
+	})
+
+	h.logger.Info("device pairing approved", "requestId", requestID)
+	h.jsonResponse(w, map[string]string{"status": "approved", "requestId": requestID})
+}
+
+func (h *adminHandler) rejectDevice(w http.ResponseWriter, r *http.Request) {
+	if h.rpc == nil {
+		h.jsonError(w, "Gateway RPC not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	requestID := chi.URLParam(r, "requestId")
+	if requestID == "" {
+		h.jsonError(w, "requestId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.rpc.RejectDevice(requestID); err != nil {
+		h.logger.Error("reject device failed", "error", err, "requestId", requestID)
+		h.jsonError(w, fmt.Sprintf("failed to reject device: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	// Audit log
+	h.store.AddAuditEntry(&store.AuditEntry{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		Action:    "device_rejected",
+		Details:   fmt.Sprintf("requestId: %s", requestID),
+		Actor:     "admin",
+	})
+
+	h.logger.Info("device pairing rejected", "requestId", requestID)
+	h.jsonResponse(w, map[string]string{"status": "rejected", "requestId": requestID})
 }
 
 // spaHandler serves the SvelteKit SPA with fallback to index.html.

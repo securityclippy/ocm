@@ -63,7 +63,9 @@ services:
     container_name: ocm
     environment:
       OCM_MASTER_KEY: ${OCM_MASTER_KEY}
-      # Gateway URL for restart triggers
+      # Gateway token for RPC authentication (device pairing management)
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      # Gateway URL for RPC
       OCM_GATEWAY_URL: http://openclaw:18789
       # Path to .env file for credential injection
       OCM_ENV_FILE: /openclaw-config/.env
