@@ -80,6 +80,34 @@ else
     fi
 fi
 
+# Always ensure paths are in .env (might be missing from older setup)
+if ! grep -q "^OPENCLAW_CONFIG_DIR=" .env 2>/dev/null; then
+    echo "📁 Adding config path to .env..."
+    echo "OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR" >> .env
+fi
+if ! grep -q "^OPENCLAW_WORKSPACE_DIR=" .env 2>/dev/null; then
+    echo "📁 Adding workspace path to .env..."
+    echo "OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR" >> .env
+fi
+
+# Update paths if they're empty
+if grep -q "^OPENCLAW_CONFIG_DIR=$" .env 2>/dev/null; then
+    echo "📁 Setting config path..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|^OPENCLAW_CONFIG_DIR=.*|OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR|" .env
+    else
+        sed -i "s|^OPENCLAW_CONFIG_DIR=.*|OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR|" .env
+    fi
+fi
+if grep -q "^OPENCLAW_WORKSPACE_DIR=$" .env 2>/dev/null; then
+    echo "📁 Setting workspace path..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|^OPENCLAW_WORKSPACE_DIR=.*|OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR|" .env
+    else
+        sed -i "s|^OPENCLAW_WORKSPACE_DIR=.*|OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR|" .env
+    fi
+fi
+
 echo ""
 echo "📦 Next steps:"
 echo "   1. Run: ./scripts/dev.sh      # Local development"
