@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/openclaw/ocm/internal/api"
 	"github.com/openclaw/ocm/internal/elevation"
@@ -23,21 +24,53 @@ var (
 )
 
 func main() {
-	// Flags
-	agentAddr := flag.String("agent-addr", ":9999", "Agent API listen address")
-	adminAddr := flag.String("admin-addr", ":8080", "Admin API/UI listen address")
-	dbPath := flag.String("db", "ocm.db", "Database path")
-	masterKeyFile := flag.String("master-key-file", "", "Path to master key file (or set OCM_MASTER_KEY)")
-	gatewayURL := flag.String("gateway-url", "http://localhost:18789", "OpenClaw Gateway RPC URL")
-	envFile := flag.String("env-file", "", "Path to .env file for credential injection (default: ~/.openclaw/.env)")
-	showVersion := flag.Bool("version", false, "Show version and exit")
-	flag.Parse()
-
-	if *showVersion {
-		fmt.Printf("ocm %s (%s)\n", version, commit)
-		os.Exit(0)
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
 	}
+}
 
+var rootCmd = &cobra.Command{
+	Use:   "ocm",
+	Short: "OpenClaw Credential Manager",
+	Long: `OCM (OpenClaw Credential Manager) is a secure credential management sidecar.
+
+It stores credentials outside the agent's process and requires human approval
+for sensitive operations, injecting credentials via environment variables.`,
+}
+
+func init() {
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(versionCmd)
+}
+
+// --- serve command ---
+
+var serveFlags struct {
+	agentAddr     string
+	adminAddr     string
+	dbPath        string
+	masterKeyFile string
+	gatewayURL    string
+	envFile       string
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the OCM server",
+	Long:  `Start the OCM server with both agent API and admin API/UI.`,
+	RunE:  runServe,
+}
+
+func init() {
+	serveCmd.Flags().StringVar(&serveFlags.agentAddr, "agent-addr", ":9999", "Agent API listen address")
+	serveCmd.Flags().StringVar(&serveFlags.adminAddr, "admin-addr", ":8080", "Admin API/UI listen address")
+	serveCmd.Flags().StringVar(&serveFlags.dbPath, "db", "ocm.db", "Database path")
+	serveCmd.Flags().StringVar(&serveFlags.masterKeyFile, "master-key-file", "", "Path to master key file (or set OCM_MASTER_KEY env)")
+	serveCmd.Flags().StringVar(&serveFlags.gatewayURL, "gateway-url", "http://localhost:18789", "OpenClaw Gateway RPC URL")
+	serveCmd.Flags().StringVar(&serveFlags.envFile, "env-file", "", "Path to .env file for credential injection (default: ~/.openclaw/.env)")
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
 	// Logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -45,23 +78,21 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Master key
-	masterKey, err := loadMasterKey(*masterKeyFile)
+	masterKey, err := loadMasterKey(serveFlags.masterKeyFile)
 	if err != nil {
-		slog.Error("failed to load master key", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load master key: %w", err)
 	}
 
 	// Initialize store
-	db, err := store.New(*dbPath, masterKey)
+	db, err := store.New(serveFlags.dbPath, masterKey)
 	if err != nil {
-		slog.Error("failed to initialize store", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize store: %w", err)
 	}
 	defer db.Close()
 
 	// Initialize gateway client
-	gwClient := gateway.NewClient(*gatewayURL, *envFile)
-	slog.Info("gateway client configured", "url", *gatewayURL, "envFile", gwClient.EnvFilePath)
+	gwClient := gateway.NewClient(serveFlags.gatewayURL, serveFlags.envFile)
+	slog.Info("gateway client configured", "url", serveFlags.gatewayURL, "envFile", gwClient.EnvFilePath)
 
 	// Initialize elevation service
 	elevSvc := elevation.NewService(db, gwClient, logger)
@@ -72,14 +103,14 @@ func main() {
 
 	// Start servers
 	agentServer := &http.Server{
-		Addr:         *agentAddr,
+		Addr:         serveFlags.agentAddr,
 		Handler:      agentRouter,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
 	adminServer := &http.Server{
-		Addr:         *adminAddr,
+		Addr:         serveFlags.adminAddr,
 		Handler:      adminRouter,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -105,7 +136,7 @@ func main() {
 
 	// Start agent API
 	go func() {
-		slog.Info("starting agent API", "addr", *agentAddr)
+		slog.Info("starting agent API", "addr", serveFlags.agentAddr)
 		if err := agentServer.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("agent server error", "error", err)
 			cancel()
@@ -114,17 +145,30 @@ func main() {
 
 	// Start admin API/UI
 	go func() {
-		slog.Info("starting admin API/UI", "addr", *adminAddr)
+		slog.Info("starting admin API/UI", "addr", serveFlags.adminAddr)
 		if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("admin server error", "error", err)
 			cancel()
 		}
 	}()
 
-	slog.Info("ocm started", "version", version, "agent", *agentAddr, "admin", *adminAddr)
+	slog.Info("ocm started", "version", version, "agent", serveFlags.agentAddr, "admin", serveFlags.adminAddr)
 	<-ctx.Done()
 	slog.Info("ocm stopped")
+	return nil
 }
+
+// --- version command ---
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version information",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("ocm %s (%s)\n", version, commit)
+	},
+}
+
+// --- helpers ---
 
 func loadMasterKey(keyFile string) ([]byte, error) {
 	// Try environment variable first
