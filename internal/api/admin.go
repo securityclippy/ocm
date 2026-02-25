@@ -128,6 +128,14 @@ func (h *adminHandler) getDashboard(w http.ResponseWriter, r *http.Request) {
 	// Count active elevations (simplified - would need a real query)
 	activeCount := 0
 
+	// Ensure we return empty slices instead of nil (JSON: [] not null)
+	if audit == nil {
+		audit = []*store.AuditEntry{}
+	}
+	if pending == nil {
+		pending = []*store.Elevation{}
+	}
+
 	h.jsonResponse(w, DashboardResponse{
 		TotalCredentials:   len(creds),
 		PendingRequests:    len(pending),
@@ -143,6 +151,10 @@ func (h *adminHandler) listCredentials(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("list credentials failed", "error", err)
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	// Ensure empty slice instead of nil
+	if creds == nil {
+		creds = []*store.Credential{}
 	}
 	h.jsonResponse(w, creds)
 }
@@ -312,6 +324,9 @@ func (h *adminHandler) listPendingRequests(w http.ResponseWriter, r *http.Reques
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if pending == nil {
+		pending = []*store.Elevation{}
+	}
 	h.jsonResponse(w, pending)
 }
 
@@ -405,6 +420,9 @@ func (h *adminHandler) listAuditEntries(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if entries == nil {
+		entries = []*store.AuditEntry{}
 	}
 	h.jsonResponse(w, entries)
 }
