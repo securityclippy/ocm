@@ -68,7 +68,7 @@ export const serviceTemplates: ServiceTemplate[] = [
 	},
 	{
 		id: 'slack',
-		name: 'Slack',
+		name: 'Slack (Bot App)',
 		category: 'channel',
 		description: 'Slack bot with socket mode',
 		docsUrl: 'https://docs.openclaw.ai/channels/slack',
@@ -118,6 +118,49 @@ export const serviceTemplates: ServiceTemplate[] = [
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '24h' }
+	},
+	{
+		id: 'slack-personal',
+		name: 'Slack (Personal Token)',
+		category: 'integration',
+		description: 'Access your Slack as yourself - no bot app needed',
+		docsUrl: 'https://docs.openclaw.ai/channels/slack',
+		setupInstructions: `⚠️ Unofficial method - extracts your session token from browser
+
+1. Open Slack in your browser (not the desktop app)
+2. Log into your workspace
+3. Open Developer Tools (F12) → Application tab
+4. Left sidebar → Cookies → your-workspace.slack.com
+5. Find and copy these values:
+   - "d" cookie → this is your xoxd- token
+6. Now go to: Local Storage → your-workspace.slack.com
+   - Or in Console, run: JSON.parse(localStorage.localConfig_v2).teams
+   - Find your workspace and copy the "token" (xoxc-...)
+
+Alternative: Use browser extension "Slack Token Extractor"
+
+Note: Token expires when you log out of browser Slack`,
+		fields: [
+			{
+				name: 'userToken',
+				label: 'User Token (xoxc)',
+				envVar: 'SLACK_USER_TOKEN',
+				type: 'password',
+				placeholder: 'xoxc-...',
+				required: true,
+				helpText: 'From browser LocalStorage or Console'
+			},
+			{
+				name: 'cookie',
+				label: 'Cookie (xoxd)',
+				envVar: 'SLACK_COOKIE',
+				type: 'password',
+				placeholder: 'xoxd-...',
+				required: true,
+				helpText: 'The "d" cookie from browser Developer Tools'
+			}
+		],
+		elevationConfig: { readOnly: false, defaultTTL: '4h' }
 	},
 
 	// ===== AI/LLM Providers =====
