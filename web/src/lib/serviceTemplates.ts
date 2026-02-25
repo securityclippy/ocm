@@ -72,15 +72,31 @@ export const serviceTemplates: ServiceTemplate[] = [
 		category: 'channel',
 		description: 'Slack bot with socket mode',
 		docsUrl: 'https://docs.openclaw.ai/channels/slack',
+		setupInstructions: `1. Go to api.slack.com/apps → Create New App → From scratch
+2. Enable Socket Mode (left sidebar) → toggle ON
+3. Basic Information → App-Level Tokens → Generate Token
+   - Add scope: connections:write
+   - Copy the App Token (xapp-...)
+4. OAuth & Permissions → Add bot scopes:
+   - channels:history, channels:read, chat:write
+   - reactions:read, reactions:write, users:read
+   - (add more as needed from the docs)
+5. Install to Workspace → Copy Bot Token (xoxb-...)
+6. Optional: Add User Token Scopes for expanded read access
+   - Reinstall app → Copy User Token (xoxp-...)
+7. Event Subscriptions → Enable → Subscribe to:
+   - message.channels, message.groups, message.im
+   - app_mention, reaction_added
+8. App Home → Enable Messages Tab for DMs`,
 		fields: [
 			{
 				name: 'appToken',
 				label: 'App Token',
 				envVar: 'SLACK_APP_TOKEN',
 				type: 'password',
-				placeholder: 'xapp-...',
+				placeholder: 'xapp-1-...',
 				required: true,
-				helpText: 'App-level token with connections:write scope'
+				helpText: 'Basic Information → App-Level Tokens (connections:write scope)'
 			},
 			{
 				name: 'botToken',
@@ -89,7 +105,7 @@ export const serviceTemplates: ServiceTemplate[] = [
 				type: 'password',
 				placeholder: 'xoxb-...',
 				required: true,
-				helpText: 'Bot user OAuth token'
+				helpText: 'OAuth & Permissions → Bot User OAuth Token'
 			},
 			{
 				name: 'userToken',
@@ -98,7 +114,7 @@ export const serviceTemplates: ServiceTemplate[] = [
 				type: 'password',
 				placeholder: 'xoxp-...',
 				required: false,
-				helpText: 'For read operations (history, pins, reactions)'
+				helpText: 'OAuth & Permissions → User OAuth Token (for history, pins, reactions, search)'
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '24h' }
