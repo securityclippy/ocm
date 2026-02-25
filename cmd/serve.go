@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -17,33 +17,6 @@ import (
 	"github.com/openclaw/ocm/internal/gateway"
 	"github.com/openclaw/ocm/internal/store"
 )
-
-var (
-	version = "dev"
-	commit  = "none"
-)
-
-func main() {
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
-}
-
-var rootCmd = &cobra.Command{
-	Use:   "ocm",
-	Short: "OpenClaw Credential Manager",
-	Long: `OCM (OpenClaw Credential Manager) is a secure credential management sidecar.
-
-It stores credentials outside the agent's process and requires human approval
-for sensitive operations, injecting credentials via environment variables.`,
-}
-
-func init() {
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(versionCmd)
-}
-
-// --- serve command ---
 
 var serveFlags struct {
 	agentAddr     string
@@ -152,23 +125,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	slog.Info("ocm started", "version", version, "agent", serveFlags.agentAddr, "admin", serveFlags.adminAddr)
+	slog.Info("ocm started", "version", Version, "agent", serveFlags.agentAddr, "admin", serveFlags.adminAddr)
 	<-ctx.Done()
 	slog.Info("ocm stopped")
 	return nil
 }
-
-// --- version command ---
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("ocm %s (%s)\n", version, commit)
-	},
-}
-
-// --- helpers ---
 
 func loadMasterKey(keyFile string) ([]byte, error) {
 	// Try environment variable first

@@ -1,4 +1,6 @@
 # Binaries
+/ocm
+ocm-*
 bin/
 *.exe
 *.exe~
