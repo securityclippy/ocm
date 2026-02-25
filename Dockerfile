@@ -1,8 +1,8 @@
 # Build stage - Frontend
 FROM node:20-alpine AS frontend
 WORKDIR /app/web
-COPY web/package.json web/pnpm-lock.yaml* ./
-RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile || npm ci
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --include=dev
 COPY web/ ./
 RUN npm run build
 
