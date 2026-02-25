@@ -4,7 +4,7 @@
 
 set -e
 
-OPENCLAW_REPO="https://github.com/anthropics/openclaw.git"
+OPENCLAW_REPO="https://github.com/openclaw/openclaw.git"
 OPENCLAW_BRANCH="${OPENCLAW_BRANCH:-main}"
 OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-openclaw:local}"
 
