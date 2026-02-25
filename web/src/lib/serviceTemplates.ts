@@ -123,41 +123,48 @@ export const serviceTemplates: ServiceTemplate[] = [
 		id: 'slack-personal',
 		name: 'Slack (Personal Token)',
 		category: 'integration',
-		description: 'Access your Slack as yourself - no bot app needed',
+		description: 'Long-lived token to access Slack as yourself',
 		docsUrl: 'https://docs.openclaw.ai/channels/slack',
-		setupInstructions: `⚠️ Unofficial method - extracts your session token from browser
+		setupInstructions: `Create a minimal personal app to get a long-lived user token:
 
-1. Open Slack in your browser (not the desktop app)
-2. Log into your workspace
-3. Open Developer Tools (F12) → Application tab
-4. Left sidebar → Cookies → your-workspace.slack.com
-5. Find and copy these values:
-   - "d" cookie → this is your xoxd- token
-6. Now go to: Local Storage → your-workspace.slack.com
-   - Or in Console, run: JSON.parse(localStorage.localConfig_v2).teams
-   - Find your workspace and copy the "token" (xoxc-...)
+1. Go to api.slack.com/apps → Create New App → From scratch
+2. Name it anything (e.g., "My Personal Access")
+3. OAuth & Permissions → User Token Scopes → Add these:
+   - channels:history, channels:read (public channels)
+   - groups:history, groups:read (private channels)
+   - im:history, im:read (DMs)
+   - mpim:history, mpim:read (group DMs)
+   - users:read (user info)
+   - search:read (search messages)
+   - files:read (attachments)
+4. Install to Workspace (top of OAuth page)
+5. Copy the User OAuth Token (xoxp-...)
 
-Alternative: Use browser extension "Slack Token Extractor"
+This token is long-lived and won't expire!
+No bot needed - this acts as YOU.
 
-Note: Token expires when you log out of browser Slack`,
+---
+Alternative: Browser token (short-lived, expires on logout)
+- DevTools → Application → Cookies → copy "d" (xoxd-...)
+- Console: JSON.parse(localStorage.localConfig_v2).teams[...].token (xoxc-...)`,
 		fields: [
 			{
 				name: 'userToken',
-				label: 'User Token (xoxc)',
+				label: 'User Token',
 				envVar: 'SLACK_USER_TOKEN',
 				type: 'password',
-				placeholder: 'xoxc-...',
+				placeholder: 'xoxp-... (recommended) or xoxc-...',
 				required: true,
-				helpText: 'From browser LocalStorage or Console'
+				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (expires)'
 			},
 			{
 				name: 'cookie',
-				label: 'Cookie (xoxd)',
+				label: 'Cookie (only for xoxc tokens)',
 				envVar: 'SLACK_COOKIE',
 				type: 'password',
 				placeholder: 'xoxd-...',
-				required: true,
-				helpText: 'The "d" cookie from browser Developer Tools'
+				required: false,
+				helpText: 'Required only if using browser xoxc- token'
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '4h' }
