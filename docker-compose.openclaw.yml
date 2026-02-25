@@ -34,6 +34,8 @@ services:
     volumes:
       - ${OPENCLAW_CONFIG_DIR:-openclaw-config}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR:-openclaw-workspace}:/home/node/.openclaw/workspace
+      # Mount config with Control UI CORS settings for LAN binding
+      - ./openclaw.docker.json5:/home/node/.openclaw/openclaw.json:ro
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
     networks:

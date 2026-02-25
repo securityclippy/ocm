@@ -1,0 +1,11 @@
+// OpenClaw config for Docker deployment with OCM
+// Mount this to /home/node/.openclaw/openclaw.json
+{
+  gateway: {
+    controlUi: {
+      enabled: true,
+      // Allow CORS from any origin using Host header (safe for local/dev)
+      dangerouslyAllowHostHeaderOriginFallback: true,
+    },
+  },
+}
