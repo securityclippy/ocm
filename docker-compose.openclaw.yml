@@ -11,17 +11,33 @@
 #   OPENCLAW_GATEWAY_TOKEN - Gateway auth token
 #   OCM_MASTER_KEY - 64 hex chars for credential encryption
 #
-# Required paths (RECOMMENDED: use host paths to avoid permission issues):
-#   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw (e.g., /home/youruser/.openclaw)
-#   OPENCLAW_WORKSPACE_DIR - Host path to workspace (e.g., /home/youruser/.openclaw/workspace)
-#
-# If using Docker volumes instead of host paths, run this first to fix permissions:
-#   docker run --rm -v openclaw-config:/data alpine chown -R 1000:1000 /data
+# Optional paths (defaults to Docker volumes):
+#   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw
+#   OPENCLAW_WORKSPACE_DIR - Host path to workspace
 #
 # Optional:
 #   OPENCLAW_IMAGE - Defaults to openclaw:local
 
 services:
+  # ============================================
+  # Init container - sets up volume permissions
+  # ============================================
+  init-permissions:
+    image: alpine:3.19
+    container_name: ocm-init
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-openclaw-config}:/openclaw-config
+      - ${OPENCLAW_WORKSPACE_DIR:-openclaw-workspace}:/openclaw-workspace
+    command: |
+      sh -c '
+        echo "Setting up volume permissions..."
+        chown -R 1000:1000 /openclaw-config /openclaw-workspace
+        mkdir -p /openclaw-config/devices /openclaw-config/workspace
+        chown -R 1000:1000 /openclaw-config/devices /openclaw-config/workspace
+        echo "Done."
+      '
+    restart: "no"
+
   # ============================================
   # OpenClaw Gateway
   # ============================================
@@ -44,7 +60,10 @@ services:
     networks:
       - ocm-network
     depends_on:
-      - ocm
+      init-permissions:
+        condition: service_completed_successfully
+      ocm:
+        condition: service_started
     init: true
     restart: unless-stopped
     command:
@@ -78,6 +97,9 @@ services:
       - ocm-data:/data
       # Share OpenClaw config for .env injection
       - ${OPENCLAW_CONFIG_DIR:-openclaw-config}:/openclaw-config
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
     ports:
       # Admin UI - expose to host for management
       - "${OCM_ADMIN_PORT:-8080}:8080"
