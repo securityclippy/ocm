@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/openclaw/ocm/internal/api"
+	"github.com/openclaw/ocm/internal/elevation"
+	"github.com/openclaw/ocm/internal/gateway"
 	"github.com/openclaw/ocm/internal/store"
 )
 
@@ -26,6 +28,8 @@ func main() {
 	adminAddr := flag.String("admin-addr", ":8080", "Admin API/UI listen address")
 	dbPath := flag.String("db", "ocm.db", "Database path")
 	masterKeyFile := flag.String("master-key-file", "", "Path to master key file (or set OCM_MASTER_KEY)")
+	gatewayURL := flag.String("gateway-url", "http://localhost:18789", "OpenClaw Gateway RPC URL")
+	envFile := flag.String("env-file", "", "Path to .env file for credential injection (default: ~/.openclaw/.env)")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	flag.Parse()
 
@@ -55,9 +59,16 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize gateway client
+	gwClient := gateway.NewClient(*gatewayURL, *envFile)
+	slog.Info("gateway client configured", "url", *gatewayURL, "envFile", gwClient.EnvFilePath)
+
+	// Initialize elevation service
+	elevSvc := elevation.NewService(db, gwClient, logger)
+
 	// Create routers
 	agentRouter := api.NewAgentRouter(db, logger)
-	adminRouter := api.NewAdminRouter(db, logger)
+	adminRouter := api.NewAdminRouter(db, elevSvc, logger)
 
 	// Start servers
 	agentServer := &http.Server{

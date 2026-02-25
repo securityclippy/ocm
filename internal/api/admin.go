@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/openclaw/ocm/internal/elevation"
 	"github.com/openclaw/ocm/internal/store"
 )
 
@@ -23,7 +24,7 @@ var WebAssets embed.FS
 // - Elevation approval/denial
 // - Audit log viewing
 // - Web UI serving
-func NewAdminRouter(db *store.Store, logger *slog.Logger) chi.Router {
+func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, logger *slog.Logger) chi.Router {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -32,7 +33,7 @@ func NewAdminRouter(db *store.Store, logger *slog.Logger) chi.Router {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	h := &adminHandler{store: db, logger: logger}
+	h := &adminHandler{store: db, elevation: elevSvc, logger: logger}
 
 	// API routes (protected by auth middleware)
 	r.Route("/admin/api", func(r chi.Router) {
@@ -72,8 +73,9 @@ func NewAdminRouter(db *store.Store, logger *slog.Logger) chi.Router {
 }
 
 type adminHandler struct {
-	store  *store.Store
-	logger *slog.Logger
+	store     *store.Store
+	elevation *elevation.Service
+	logger    *slog.Logger
 }
 
 // DashboardResponse contains summary data for the admin dashboard.
@@ -95,6 +97,7 @@ type CreateCredentialRequest struct {
 
 // ScopeConfig is the configuration for a single scope.
 type ScopeConfig struct {
+	EnvVar           string `json:"envVar"`           // e.g., "GMAIL_TOKEN"
 	Permanent        bool   `json:"permanent"`
 	RequiresApproval bool   `json:"requiresApproval"`
 	MaxTTL           string `json:"maxTTL"` // e.g., "1h", "30m"
@@ -184,6 +187,7 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 
 		cred.Scopes[name] = &store.Scope{
 			Name:             name,
+			EnvVar:           cfg.EnvVar,
 			Permanent:        cfg.Permanent,
 			RequiresApproval: cfg.RequiresApproval,
 			MaxTTL:           maxTTL,
@@ -260,6 +264,7 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 
 		existing.Scopes[name] = &store.Scope{
 			Name:             name,
+			EnvVar:           cfg.EnvVar,
 			Permanent:        cfg.Permanent,
 			RequiresApproval: cfg.RequiresApproval,
 			MaxTTL:           maxTTL,
@@ -328,60 +333,24 @@ func (h *adminHandler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		ttl = 30 * time.Minute
 	}
 
-	// Get the elevation request
-	elev, err := h.store.GetElevation(id)
-	if err != nil {
-		h.jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if elev == nil {
-		h.jsonError(w, "not found", http.StatusNotFound)
-		return
-	}
-	if elev.Status != "pending" {
-		h.jsonError(w, "request not pending", http.StatusBadRequest)
+	// Use elevation service to approve and inject credential
+	if err := h.elevation.ApproveElevation(id, ttl, "admin"); err != nil {
+		h.logger.Error("approve elevation failed", "error", err)
+		h.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Check TTL against maxTTL
-	cred, _ := h.store.GetCredential(elev.Service)
-	if cred != nil {
-		if scope, ok := cred.Scopes[elev.Scope]; ok && scope.MaxTTL > 0 {
-			if ttl > scope.MaxTTL {
-				ttl = scope.MaxTTL
-			}
-		}
-	}
-
-	expiresAt := time.Now().Add(ttl)
-	if err := h.store.UpdateElevation(id, "approved", "admin", &expiresAt); err != nil {
-		h.jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Audit log
-	h.store.AddAuditEntry(&store.AuditEntry{
-		ID:        generateID("audit"),
-		Timestamp: time.Now(),
-		Action:    "elevation_approved",
-		Service:   elev.Service,
-		Scope:     elev.Scope,
-		Details:   req.TTL,
-		Actor:     "admin",
-	})
-
-	h.logger.Info("elevation approved",
+	// Get updated elevation for response
+	elev, _ := h.store.GetElevation(id)
+	
+	h.logger.Info("elevation approved via admin API",
 		"request_id", id,
-		"service", elev.Service,
-		"scope", elev.Scope,
 		"ttl", ttl,
 	)
 
-	// TODO: Send callback to agent
-
 	h.jsonResponse(w, map[string]interface{}{
 		"status":    "approved",
-		"expiresAt": expiresAt,
+		"expiresAt": elev.ExpiresAt,
 	})
 }
 
@@ -422,32 +391,14 @@ func (h *adminHandler) revokeElevation(w http.ResponseWriter, r *http.Request) {
 	service := chi.URLParam(r, "service")
 	scope := chi.URLParam(r, "scope")
 
-	active, err := h.store.GetActiveElevation(service, scope)
-	if err != nil {
-		h.jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if active == nil {
-		h.jsonError(w, "no active elevation", http.StatusNotFound)
+	// Use elevation service to revoke and remove credential from Gateway
+	if err := h.elevation.RevokeElevation(service, scope, "admin revocation"); err != nil {
+		h.logger.Error("revoke elevation failed", "error", err)
+		h.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := h.store.UpdateElevation(active.ID, "revoked", "admin", nil); err != nil {
-		h.jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Audit log
-	h.store.AddAuditEntry(&store.AuditEntry{
-		ID:        generateID("audit"),
-		Timestamp: time.Now(),
-		Action:    "elevation_revoked",
-		Service:   service,
-		Scope:     scope,
-		Actor:     "admin",
-	})
-
-	h.logger.Info("elevation revoked", "service", service, "scope", scope)
+	h.logger.Info("elevation revoked via admin API", "service", service, "scope", scope)
 
 	h.jsonResponse(w, map[string]string{"status": "revoked"})
 }
