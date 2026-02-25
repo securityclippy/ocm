@@ -144,6 +144,9 @@ func loadMasterKey(keyFile string) ([]byte, error) {
 	if keyFile != "" {
 		data, err := os.ReadFile(keyFile)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("key file not found: %s\n\nTo generate a new key:\n  ocm keygen -o %s", keyFile, keyFile)
+			}
 			return nil, fmt.Errorf("read key file: %w", err)
 		}
 		// Key file should be raw 32 bytes or 64 hex chars
@@ -156,7 +159,17 @@ func loadMasterKey(keyFile string) ([]byte, error) {
 		return nil, fmt.Errorf("key file must be 32 bytes or 64 hex characters")
 	}
 
-	return nil, fmt.Errorf("no master key provided (set OCM_MASTER_KEY or use --master-key-file)")
+	return nil, fmt.Errorf(`no master key provided
+
+To generate a new master key:
+  ocm keygen                    # print to stdout
+  ocm keygen -o ~/.ocm/master.key  # save to file
+
+Then start OCM with:
+  export OCM_MASTER_KEY=<key>   # environment variable
+  ocm serve --master-key-file ~/.ocm/master.key  # or key file
+
+The master key encrypts all stored credentials. Keep it safe!`)
 }
 
 func hexDecode(s string) ([]byte, error) {

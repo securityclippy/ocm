@@ -31,4 +31,5 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(keygenCmd)
 }
