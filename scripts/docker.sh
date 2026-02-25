@@ -45,24 +45,24 @@ else
     
     # Check for OpenClaw image
     OPENCLAW_IMAGE=$(grep "^OPENCLAW_IMAGE=" .env 2>/dev/null | cut -d= -f2)
-    if [ -z "$OPENCLAW_IMAGE" ] || [ "$OPENCLAW_IMAGE" = "openclaw:local" ]; then
-        # Check if openclaw:local exists
-        if ! docker image inspect openclaw:local &>/dev/null; then
-            echo ""
-            echo "⚠️  OpenClaw Docker image not found!"
-            echo ""
-            echo "   OpenClaw doesn't have a public Docker image yet."
-            echo "   You need to build it locally first:"
-            echo ""
-            echo "   cd /path/to/openclaw"
-            echo "   docker build -t openclaw:local ."
-            echo ""
-            echo "   Then run this script again."
-            echo ""
-            echo "   Or use OCM standalone: ./scripts/docker.sh ocm-only"
-            exit 1
-        fi
+    OPENCLAW_IMAGE=${OPENCLAW_IMAGE:-openclaw:local}
+    
+    if ! docker image inspect "$OPENCLAW_IMAGE" &>/dev/null; then
+        echo ""
+        echo "⚠️  OpenClaw Docker image '$OPENCLAW_IMAGE' not found!"
+        echo ""
+        echo "   Build it first in your OpenClaw repo:"
+        echo ""
+        echo "   cd /path/to/openclaw"
+        echo "   docker build -t openclaw:local ."
+        echo ""
+        echo "   Then run this script again."
+        echo ""
+        echo "   Or use OCM standalone: ./scripts/docker.sh ocm-only"
+        exit 1
     fi
+    
+    echo "✅ Found OpenClaw image: $OPENCLAW_IMAGE"
     
     docker compose -f docker-compose.openclaw.yml up -d
     echo ""

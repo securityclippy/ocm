@@ -29,11 +29,6 @@ if [ ! -f .env ]; then
         sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
     fi
     
-    # Add OPENCLAW_IMAGE if not present
-    if ! grep -q "^OPENCLAW_IMAGE=" .env 2>/dev/null; then
-        echo "OPENCLAW_IMAGE=openclaw:local" >> .env
-    fi
-    
     echo "✅ Generated keys and saved to .env"
 else
     echo "📄 .env already exists"
