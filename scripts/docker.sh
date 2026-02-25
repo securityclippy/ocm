@@ -9,10 +9,8 @@ MODE=${1:-with-openclaw}
 echo "🐳 OCM Docker Setup"
 echo "==================="
 
-# Run setup first
-if [ ! -f .env ]; then
-    ./scripts/setup.sh
-fi
+# Run setup first (generates keys if needed)
+./scripts/setup.sh
 
 # Build OCM image
 echo ""
@@ -35,17 +33,14 @@ else
     echo ""
     echo "🚀 Starting OCM + OpenClaw..."
     
-    # Check for gateway token
-    if grep -q "^OPENCLAW_GATEWAY_TOKEN=your-gateway-token-here" .env 2>/dev/null; then
-        echo ""
-        echo "⚠️  OPENCLAW_GATEWAY_TOKEN is not set in .env"
-        echo "   Please edit .env and set your gateway token."
-        echo ""
-        read -p "Continue anyway? [y/N] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+    # Verify tokens are set
+    if grep -q "^OPENCLAW_GATEWAY_TOKEN=$" .env 2>/dev/null; then
+        echo "❌ OPENCLAW_GATEWAY_TOKEN is empty. Run ./scripts/setup.sh"
+        exit 1
+    fi
+    if grep -q "^OCM_MASTER_KEY=$" .env 2>/dev/null; then
+        echo "❌ OCM_MASTER_KEY is empty. Run ./scripts/setup.sh"
+        exit 1
     fi
     
     docker compose -f docker-compose.openclaw.yml up -d

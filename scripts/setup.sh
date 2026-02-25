@@ -13,37 +13,59 @@ if [ ! -f .env ]; then
     cp .env.example .env
     
     # Generate master key
-    echo "🔑 Generating master key..."
+    echo "🔑 Generating OCM master key..."
     MASTER_KEY=$(openssl rand -hex 32)
     
-    # Update .env with the key
+    # Generate gateway token
+    echo "🔑 Generating OpenClaw gateway token..."
+    GATEWAY_TOKEN=$(openssl rand -hex 32)
+    
+    # Update .env with the keys
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
+        sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
     else
         sed -i "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
+        sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
     fi
     
-    echo "✅ Generated master key and saved to .env"
+    echo "✅ Generated keys and saved to .env"
 else
-    echo "📄 .env already exists, skipping..."
-fi
-
-# Check if OCM_MASTER_KEY is set
-if grep -q "^OCM_MASTER_KEY=$" .env 2>/dev/null; then
-    echo "⚠️  OCM_MASTER_KEY is empty in .env"
-    echo "   Run: openssl rand -hex 32"
-    echo "   And paste the result into .env"
-fi
-
-# Check if OPENCLAW_GATEWAY_TOKEN is set
-if grep -q "^OPENCLAW_GATEWAY_TOKEN=your-gateway-token-here" .env 2>/dev/null; then
-    echo ""
-    echo "⚠️  Don't forget to set OPENCLAW_GATEWAY_TOKEN in .env"
-    echo "   (Required for OpenClaw integration)"
+    echo "📄 .env already exists"
+    
+    # Check if keys need to be generated
+    NEEDS_UPDATE=false
+    
+    if grep -q "^OCM_MASTER_KEY=$" .env 2>/dev/null; then
+        echo "🔑 Generating OCM master key..."
+        MASTER_KEY=$(openssl rand -hex 32)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
+        else
+            sed -i "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
+        fi
+        NEEDS_UPDATE=true
+    fi
+    
+    if grep -q "^OPENCLAW_GATEWAY_TOKEN=your-gateway-token-here" .env 2>/dev/null || grep -q "^OPENCLAW_GATEWAY_TOKEN=$" .env 2>/dev/null; then
+        echo "🔑 Generating OpenClaw gateway token..."
+        GATEWAY_TOKEN=$(openssl rand -hex 32)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
+        else
+            sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
+        fi
+        NEEDS_UPDATE=true
+    fi
+    
+    if [ "$NEEDS_UPDATE" = true ]; then
+        echo "✅ Updated .env with generated keys"
+    else
+        echo "✅ All keys already configured"
+    fi
 fi
 
 echo ""
 echo "📦 Next steps:"
-echo "   1. Edit .env if needed"
-echo "   2. Run: ./scripts/dev.sh      # Local development"
-echo "   3. Or:  ./scripts/docker.sh   # Docker setup"
+echo "   1. Run: ./scripts/dev.sh      # Local development"
+echo "   2. Or:  ./scripts/docker.sh   # Docker setup"
