@@ -129,6 +129,8 @@ func (c *RPCClient) Connect() error {
 	}
 
 	// Send connect request with proper protocol structure
+	// Valid client IDs: cli, gateway-client, webchat, etc.
+	// Valid modes: cli, backend, ui, node, etc.
 	connectReq := rpcMessage{
 		Type:   "req",
 		ID:     "1",
@@ -137,10 +139,10 @@ func (c *RPCClient) Connect() error {
 			"minProtocol": 3,
 			"maxProtocol": 3,
 			"client": map[string]interface{}{
-				"id":       "ocm",
+				"id":       "cli",
 				"version":  "0.1.0",
 				"platform": "linux",
-				"mode":     "operator",
+				"mode":     "cli",
 			},
 			"role":   "operator",
 			"scopes": []string{"operator.read", "operator.pairing"},
