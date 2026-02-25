@@ -2,25 +2,19 @@
 package gateway
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // Client manages communication with OpenClaw Gateway.
 type Client struct {
 	// GatewayURL is the OpenClaw Gateway RPC endpoint (e.g., http://localhost:18789)
+	// Note: Currently unused - restart requires WebSocket RPC (TODO)
 	GatewayURL string
 	// EnvFilePath is the path to OpenClaw's .env file (e.g., ~/.openclaw/.env)
 	EnvFilePath string
-	// HTTPClient for making requests
-	HTTPClient *http.Client
 }
 
 // NewClient creates a new Gateway client.
@@ -32,9 +26,6 @@ func NewClient(gatewayURL, envFilePath string) *Client {
 	return &Client{
 		GatewayURL:  gatewayURL,
 		EnvFilePath: envFilePath,
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}
 }
 
