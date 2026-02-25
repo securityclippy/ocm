@@ -7,6 +7,17 @@ set -e
 echo "🔧 OCM Setup"
 echo "============"
 
+# Set default paths (following OpenClaw's pattern)
+OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
+
+# Create directories with user ownership
+echo "📁 Creating directories..."
+mkdir -p "$OPENCLAW_CONFIG_DIR"
+mkdir -p "$OPENCLAW_WORKSPACE_DIR"
+echo "   Config: $OPENCLAW_CONFIG_DIR"
+echo "   Workspace: $OPENCLAW_WORKSPACE_DIR"
+
 # Check for .env
 if [ ! -f .env ]; then
     echo "📄 Creating .env from template..."
@@ -28,6 +39,10 @@ if [ ! -f .env ]; then
         sed -i "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
         sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
     fi
+    
+    # Add paths to .env
+    echo "OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR" >> .env
+    echo "OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR" >> .env
     
     echo "✅ Generated keys and saved to .env"
 else
