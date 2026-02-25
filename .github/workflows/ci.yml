@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install frontend dependencies
+        run: cd web && pnpm install
+
+      - name: Build frontend
+        run: cd web && pnpm build
+
+      - name: Copy frontend to embed
+        run: |
+          rm -rf internal/web/build/_app internal/web/build/*.html internal/web/build/*.png 2>/dev/null || true
+          cp -r web/build/* internal/web/build/
+
+      - name: Run Go tests
+        run: go test -v ./...
+
+      - name: Build binary
+        run: go build -o ocm .
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ocm:test .
