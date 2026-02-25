@@ -232,6 +232,79 @@ export const serviceTemplates: ServiceTemplate[] = [
 		elevationConfig: { readOnly: true }
 	},
 
+	// ===== Google Services =====
+	{
+		id: 'gmail',
+		name: 'Gmail',
+		category: 'integration',
+		description: 'Gmail read/send via gogcli OAuth',
+		docsUrl: 'https://docs.openclaw.ai/automation/gmail-pubsub',
+		fields: [
+			{
+				name: 'notice',
+				label: 'Setup Required',
+				envVar: '',
+				type: 'text',
+				helpText: 'Gmail uses OAuth via gogcli. Run: openclaw webhooks gmail setup --account you@gmail.com'
+			},
+			{
+				name: 'account',
+				label: 'Gmail Account',
+				envVar: 'GMAIL_ACCOUNT',
+				type: 'text',
+				placeholder: 'you@gmail.com',
+				required: true,
+				helpText: 'The Gmail account authorized with gogcli'
+			}
+		],
+		elevationConfig: { readOnly: false, defaultTTL: '1h' }
+	},
+	{
+		id: 'google-calendar',
+		name: 'Google Calendar',
+		category: 'integration',
+		description: 'Calendar access via gogcli OAuth',
+		docsUrl: 'https://gogcli.sh',
+		fields: [
+			{
+				name: 'notice',
+				label: 'Setup Required',
+				envVar: '',
+				type: 'text',
+				helpText: 'Calendar uses OAuth via gogcli. Run: gog auth login --account you@gmail.com'
+			},
+			{
+				name: 'account',
+				label: 'Google Account',
+				envVar: 'GOOGLE_CALENDAR_ACCOUNT',
+				type: 'text',
+				placeholder: 'you@gmail.com',
+				required: true,
+				helpText: 'The Google account authorized with gogcli'
+			}
+		],
+		elevationConfig: { readOnly: true }
+	},
+	{
+		id: 'google-chat',
+		name: 'Google Chat',
+		category: 'channel',
+		description: 'Google Chat app via service account',
+		docsUrl: 'https://docs.openclaw.ai/channels/googlechat',
+		fields: [
+			{
+				name: 'serviceAccountFile',
+				label: 'Service Account JSON Path',
+				envVar: 'GOOGLE_CHAT_SERVICE_ACCOUNT_FILE',
+				type: 'text',
+				placeholder: '~/.openclaw/googlechat-service-account.json',
+				required: true,
+				helpText: 'Path to the downloaded service account JSON file'
+			}
+		],
+		elevationConfig: { readOnly: false, defaultTTL: '24h' }
+	},
+
 	// ===== Integrations =====
 	{
 		id: 'linear',
@@ -266,6 +339,75 @@ export const serviceTemplates: ServiceTemplate[] = [
 				placeholder: 'ghp_...',
 				required: true,
 				helpText: 'From GitHub Settings → Developer settings → Personal access tokens'
+			}
+		],
+		elevationConfig: { readOnly: false, defaultTTL: '1h' }
+	},
+	{
+		id: 'twitter',
+		name: 'Twitter / X',
+		category: 'integration',
+		description: 'Twitter API access',
+		docsUrl: 'https://developer.twitter.com/en/docs',
+		fields: [
+			{
+				name: 'bearerToken',
+				label: 'Bearer Token',
+				envVar: 'TWITTER_BEARER_TOKEN',
+				type: 'password',
+				required: false,
+				helpText: 'For read-only API access (v2 API)'
+			},
+			{
+				name: 'apiKey',
+				label: 'API Key',
+				envVar: 'TWITTER_API_KEY',
+				type: 'password',
+				required: false,
+				helpText: 'Consumer key for OAuth 1.0a'
+			},
+			{
+				name: 'apiSecret',
+				label: 'API Secret',
+				envVar: 'TWITTER_API_SECRET',
+				type: 'password',
+				required: false,
+				helpText: 'Consumer secret for OAuth 1.0a'
+			},
+			{
+				name: 'accessToken',
+				label: 'Access Token',
+				envVar: 'TWITTER_ACCESS_TOKEN',
+				type: 'password',
+				required: false,
+				helpText: 'User access token for posting'
+			},
+			{
+				name: 'accessSecret',
+				label: 'Access Token Secret',
+				envVar: 'TWITTER_ACCESS_SECRET',
+				type: 'password',
+				required: false,
+				helpText: 'User access token secret'
+			}
+		],
+		elevationConfig: { readOnly: false, defaultTTL: '1h' }
+	},
+	{
+		id: 'notion',
+		name: 'Notion',
+		category: 'integration',
+		description: 'Notion API access',
+		docsUrl: 'https://developers.notion.com',
+		fields: [
+			{
+				name: 'apiKey',
+				label: 'Integration Token',
+				envVar: 'NOTION_API_KEY',
+				type: 'password',
+				placeholder: 'secret_...',
+				required: true,
+				helpText: 'From Notion Settings → Integrations → Develop your own'
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '1h' }
