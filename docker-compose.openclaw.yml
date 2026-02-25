@@ -1,0 +1,94 @@
+# Docker Compose for running OpenClaw + OCM together
+#
+# Usage:
+#   docker compose -f docker-compose.openclaw.yml up -d
+#
+# Required env vars (create a .env file):
+#   OPENCLAW_GATEWAY_TOKEN - Gateway auth token
+#   OCM_MASTER_KEY - 64 hex chars (generate with: ocm keygen --stdout)
+#
+# Optional:
+#   OPENCLAW_IMAGE - OpenClaw image (default: ghcr.io/anthropics/openclaw:latest)
+#   OPENCLAW_CONFIG_DIR - Host path to ~/.openclaw
+#   OPENCLAW_WORKSPACE_DIR - Host path to workspace
+
+services:
+  # ============================================
+  # OpenClaw Gateway
+  # ============================================
+  openclaw:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/anthropics/openclaw:latest}
+    container_name: openclaw
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      # OCM integration - agent API endpoint
+      OCM_AGENT_URL: http://ocm:9999
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-openclaw-config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-openclaw-workspace}:/home/node/.openclaw/workspace
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    networks:
+      - ocm-network
+    depends_on:
+      - ocm
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+      ]
+
+  # ============================================
+  # OCM - Credential Manager
+  # ============================================
+  ocm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ocm:local
+    container_name: ocm
+    environment:
+      OCM_MASTER_KEY: ${OCM_MASTER_KEY}
+      # Gateway URL for restart triggers
+      OCM_GATEWAY_URL: http://openclaw:18789
+      # Path to .env file for credential injection
+      OCM_ENV_FILE: /openclaw-config/.env
+    volumes:
+      - ocm-data:/data
+      # Share OpenClaw config for .env injection
+      - ${OPENCLAW_CONFIG_DIR:-openclaw-config}:/openclaw-config
+    ports:
+      # Admin UI - expose to host for management
+      - "${OCM_ADMIN_PORT:-8080}:8080"
+      # Agent API - internal only (OpenClaw connects via docker network)
+      # - "9999:9999"
+    networks:
+      - ocm-network
+    restart: unless-stopped
+    command:
+      [
+        "serve",
+        "--db", "/data/ocm.db",
+        "--agent-addr", ":9999",
+        "--admin-addr", ":8080",
+        "--gateway-url", "http://openclaw:18789",
+        "--env-file", "/openclaw-config/.env"
+      ]
+
+networks:
+  ocm-network:
+    driver: bridge
+
+volumes:
+  ocm-data:
+  openclaw-config:
+  openclaw-workspace:

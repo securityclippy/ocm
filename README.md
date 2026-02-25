@@ -124,18 +124,57 @@ make lint
 
 ## Docker
 
+### OCM Standalone
+
+```bash
+# Build the image
+docker build -t ocm:local .
+
+# Generate master key
+docker run --rm ocm:local keygen --stdout > .env
+# Edit .env to set OCM_MASTER_KEY=<the generated key>
+
+# Run
+docker compose up -d
+```
+
+### With OpenClaw (Recommended)
+
+Run OCM alongside OpenClaw using the combined compose file:
+
+```bash
+# Copy and edit environment
+cp .env.example .env
+# Fill in OPENCLAW_GATEWAY_TOKEN and OCM_MASTER_KEY
+
+# Build OCM and start both services
+docker compose -f docker-compose.openclaw.yml up -d
+
+# View logs
+docker compose -f docker-compose.openclaw.yml logs -f
+```
+
+This setup:
+- Runs OpenClaw Gateway on port 18789
+- Runs OCM Admin UI on port 8080
+- OCM Agent API (9999) is internal to Docker network
+- Credentials injected via shared `.env` file
+- OCM triggers Gateway restart after approval
+
 ```yaml
+# docker-compose.openclaw.yml (excerpt)
 services:
-  ocm:
-    image: openclaw/ocm:latest
-    volumes:
-      - ocm-data:/data
+  openclaw:
+    image: ghcr.io/anthropics/openclaw:latest
+    depends_on: [ocm]
     environment:
-      - OCM_MASTER_KEY_FILE=/run/secrets/ocm_key
-    ports:
-      - "127.0.0.1:8080:8080"
-    secrets:
-      - ocm_key
+      OCM_AGENT_URL: http://ocm:9999
+    
+  ocm:
+    build: .
+    environment:
+      OCM_MASTER_KEY: ${OCM_MASTER_KEY}
+      OCM_GATEWAY_URL: http://openclaw:18789
 ```
 
 ## Security
