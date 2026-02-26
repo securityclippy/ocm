@@ -127,7 +127,8 @@ type SetupStatusResponse struct {
 
 // requiredModelProviders lists the services that provide LLM API keys.
 // At least one must be configured for OpenClaw to work.
-var requiredModelProviders = []string{"anthropic", "openai", "google", "azure-openai"}
+// NOTE: Keep in sync with modelProviderIds in SetupWizard.svelte
+var requiredModelProviders = []string{"anthropic", "openai", "openrouter", "groq", "google", "azure-openai"}
 
 func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 	creds, err := h.store.ListCredentials()
