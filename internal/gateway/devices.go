@@ -96,12 +96,44 @@ func NewRPCClient(gatewayURL, token string) *RPCClient {
 		fmt.Fprintf(os.Stderr, "warning: failed to load device identity: %v\n", err)
 	}
 
-	return &RPCClient{
+	client := &RPCClient{
 		gatewayURL: gatewayURL,
 		token:      token,
 		identity:   identity,
 		pending:    make(map[string]chan *rpcMessage),
 	}
+
+	// Start auto-connect in background
+	go client.autoConnect()
+
+	return client
+}
+
+// autoConnect attempts to connect on startup and retries until successful.
+func (c *RPCClient) autoConnect() {
+	retryInterval := 5 * time.Second
+	maxRetries := 60 // Try for 5 minutes
+
+	for i := 0; i < maxRetries; i++ {
+		if c.connected {
+			fmt.Fprintf(os.Stderr, "INFO: gateway RPC connected successfully\n")
+			return
+		}
+
+		err := c.Connect()
+		if err == nil {
+			fmt.Fprintf(os.Stderr, "INFO: gateway RPC connected successfully\n")
+			return
+		}
+
+		fmt.Fprintf(os.Stderr, "INFO: gateway RPC connect attempt %d failed: %v\n", i+1, err)
+
+		// If it's a pairing issue, keep retrying (user needs to approve)
+		// Otherwise, might be a config issue
+		time.Sleep(retryInterval)
+	}
+
+	fmt.Fprintf(os.Stderr, "ERROR: gateway RPC failed to connect after %d attempts\n", maxRetries)
 }
 
 // loadOrCreateIdentity loads or creates an Ed25519 keypair for device identity.
@@ -165,8 +197,8 @@ func (id *deviceIdentity) sign(payload string) []byte {
 }
 
 // buildAuthPayload builds the payload to sign for device auth.
-// Format: clientId:clientMode:role:scopes:signedAt:token:nonce
-func buildAuthPayload(clientID, clientMode, role string, scopes []string, signedAt int64, token, nonce string) string {
+// v2 format: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+func buildAuthPayload(deviceID, clientID, clientMode, role string, scopes []string, signedAtMs int64, token, nonce string) string {
 	scopesStr := ""
 	for i, s := range scopes {
 		if i > 0 {
@@ -174,7 +206,8 @@ func buildAuthPayload(clientID, clientMode, role string, scopes []string, signed
 		}
 		scopesStr += s
 	}
-	return fmt.Sprintf("%s:%s:%s:%s:%d:%s:%s", clientID, clientMode, role, scopesStr, signedAt, token, nonce)
+	// v2 format with nonce
+	return fmt.Sprintf("v2|%s|%s|%s|%s|%s|%d|%s|%s", deviceID, clientID, clientMode, role, scopesStr, signedAtMs, token, nonce)
 }
 
 // Connect establishes the WebSocket connection following OpenClaw protocol.
@@ -262,7 +295,7 @@ func (c *RPCClient) Connect() error {
 
 	// Add device identity if available
 	if c.identity != nil {
-		payload := buildAuthPayload(clientID, clientMode, role, scopes, signedAt, c.token, challenge.Nonce)
+		payload := buildAuthPayload(c.identity.DeviceID, clientID, clientMode, role, scopes, signedAt, c.token, challenge.Nonce)
 
 		// OpenClaw expects base64url encoding for public key and signature
 		connectParams["device"] = map[string]interface{}{
