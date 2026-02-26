@@ -296,12 +296,21 @@ func (c *RPCClient) Connect() error {
 	// Add device identity if available
 	if c.identity != nil {
 		payload := buildAuthPayload(c.identity.DeviceID, clientID, clientMode, role, scopes, signedAt, c.token, challenge.Nonce)
+		signature := c.identity.sign(payload)
+		pubKeyB64 := base64.RawURLEncoding.EncodeToString(c.identity.PublicKey)
+		sigB64 := base64.RawURLEncoding.EncodeToString(signature)
+
+		// Debug logging
+		fmt.Fprintf(os.Stderr, "DEBUG: payload=%s\n", payload)
+		fmt.Fprintf(os.Stderr, "DEBUG: deviceId=%s\n", c.identity.DeviceID)
+		fmt.Fprintf(os.Stderr, "DEBUG: publicKey=%s\n", pubKeyB64)
+		fmt.Fprintf(os.Stderr, "DEBUG: signature=%s\n", sigB64)
 
 		// OpenClaw expects base64url encoding for public key and signature
 		connectParams["device"] = map[string]interface{}{
 			"id":        c.identity.DeviceID,
-			"publicKey": base64.RawURLEncoding.EncodeToString(c.identity.PublicKey),
-			"signature": base64.RawURLEncoding.EncodeToString(c.identity.sign(payload)),
+			"publicKey": pubKeyB64,
+			"signature": sigB64,
 			"signedAt":  signedAt,
 			"nonce":     challenge.Nonce,
 		}
