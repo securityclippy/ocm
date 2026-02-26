@@ -4,6 +4,7 @@
 	const navItems = [
 		{ href: '/', label: 'Dashboard', icon: '📊' },
 		{ href: '/credentials', label: 'Credentials', icon: '🔑' },
+		{ href: '/devices', label: 'Devices', icon: '📱' },
 		{ href: '/requests', label: 'Requests', icon: '📋' },
 		{ href: '/audit', label: 'Audit Log', icon: '📜' }
 	];
