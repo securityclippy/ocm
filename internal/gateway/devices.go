@@ -110,6 +110,9 @@ func loadOrCreateIdentity() (*deviceIdentity, error) {
 	keyPath := "/data/ocm-device.key"
 	if _, err := os.Stat("/data"); os.IsNotExist(err) {
 		keyPath = filepath.Join(os.TempDir(), "ocm-device.key")
+		fmt.Fprintf(os.Stderr, "INFO: /data not found, using temp path: %s\n", keyPath)
+	} else {
+		fmt.Fprintf(os.Stderr, "INFO: using key path: %s\n", keyPath)
 	}
 
 	// Try to load existing key
@@ -117,11 +120,14 @@ func loadOrCreateIdentity() (*deviceIdentity, error) {
 		privateKey := ed25519.NewKeyFromSeed(data)
 		publicKey := privateKey.Public().(ed25519.PublicKey)
 		deviceID := computeDeviceID(publicKey)
+		fmt.Fprintf(os.Stderr, "INFO: loaded existing device identity: %s\n", deviceID)
 		return &deviceIdentity{
 			PrivateKey: privateKey,
 			PublicKey:  publicKey,
 			DeviceID:   deviceID,
 		}, nil
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "INFO: no existing key found (%v), generating new\n", err)
 	}
 
 	// Generate new keypair
@@ -133,11 +139,13 @@ func loadOrCreateIdentity() (*deviceIdentity, error) {
 	// Save seed for persistence
 	seed := privateKey.Seed()
 	if err := os.WriteFile(keyPath, seed, 0600); err != nil {
-		// Non-fatal - just won't persist across restarts
-		fmt.Fprintf(os.Stderr, "warning: failed to save device identity: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: failed to save device identity to %s: %v\n", keyPath, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "INFO: saved new device identity to %s\n", keyPath)
 	}
 
 	deviceID := computeDeviceID(publicKey)
+	fmt.Fprintf(os.Stderr, "INFO: generated new device identity: %s\n", deviceID)
 	return &deviceIdentity{
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
@@ -148,7 +156,7 @@ func loadOrCreateIdentity() (*deviceIdentity, error) {
 // computeDeviceID returns the SHA256 fingerprint of the public key.
 func computeDeviceID(publicKey ed25519.PublicKey) string {
 	hash := sha256.Sum256(publicKey)
-	return hex.EncodeToString(hash[:16]) // First 16 bytes = 32 hex chars
+	return hex.EncodeToString(hash[:]) // Full 32 bytes = 64 hex chars
 }
 
 // signPayload signs a payload for device auth.
