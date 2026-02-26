@@ -563,45 +563,34 @@ func parseRateLimitError(errMsg string) *ErrRateLimited {
 	return &ErrRateLimited{RetryAfter: time.Duration(seconds) * time.Second}
 }
 
+// ErrConfigFileLocked is returned when the config file is locked (EBUSY on WSL2/Windows).
+// This is typically caused by file watchers and requires fixing in OpenClaw itself.
+var ErrConfigFileLocked = fmt.Errorf("config file locked (EBUSY)")
+
 // RestartGateway triggers an OpenClaw Gateway restart via RPC.
 // Uses config.patch with a no-op patch to trigger restart.
 // The reason/note is logged by the Gateway.
-// Includes retry logic for transient EBUSY errors on WSL2/Windows.
-// Returns ErrRateLimited if rate limited (caller can wait and retry).
+// Returns ErrRateLimited if rate limited, ErrConfigFileLocked if file is locked.
 func (c *RPCClient) RestartGateway(reason string) error {
-	const maxRetries = 5
-	var lastErr error
-	
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff: 100ms, 200ms, 400ms, 800ms
-			backoff := time.Duration(100<<attempt) * time.Millisecond
-			time.Sleep(backoff)
-		}
-		
-		err := c.tryRestartGateway(reason)
-		if err == nil {
-			return nil
-		}
-		
-		errStr := err.Error()
-		
-		// Check for rate limiting - don't retry, return to caller
-		if rl := parseRateLimitError(errStr); rl != nil {
-			return rl
-		}
-		
-		// Check if it's a retryable EBUSY error
-		if strings.Contains(errStr, "EBUSY") || strings.Contains(errStr, "resource busy") {
-			lastErr = err
-			continue // Retry
-		}
-		
-		// Non-retryable error
-		return err
+	err := c.tryRestartGateway(reason)
+	if err == nil {
+		return nil
 	}
 	
-	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+	errStr := err.Error()
+	
+	// Check for rate limiting
+	if rl := parseRateLimitError(errStr); rl != nil {
+		return rl
+	}
+	
+	// Check for EBUSY - don't retry, this is a persistent lock on WSL2/Windows
+	// Retrying just burns through rate limit tokens without helping
+	if strings.Contains(errStr, "EBUSY") || strings.Contains(errStr, "resource busy") {
+		return ErrConfigFileLocked
+	}
+	
+	return err
 }
 
 // tryRestartGateway attempts a single Gateway restart via config.patch.

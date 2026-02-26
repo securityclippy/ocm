@@ -330,7 +330,9 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
 				default:
 					if err == gateway.ErrRestartDisabled {
-						restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+						restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+					} else if err == gateway.ErrConfigFileLocked {
+						restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
 					}
 				}
 			}
@@ -447,7 +449,9 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
 				default:
 					if err == gateway.ErrRestartDisabled {
-						restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+						restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+					} else if err == gateway.ErrConfigFileLocked {
+						restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
 					}
 				}
 			}
