@@ -93,9 +93,13 @@ func (h *agentHandler) requestElevation(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Validate
-	if req.Service == "" || req.Scope == "" {
-		h.jsonError(w, "service and scope are required", http.StatusBadRequest)
+	if req.Service == "" {
+		h.jsonError(w, "service is required", http.StatusBadRequest)
 		return
+	}
+	// Scope is now always "write" or "readwrite" for the new model
+	if req.Scope == "" {
+		req.Scope = "write"
 	}
 
 	// Check credential exists
@@ -110,16 +114,9 @@ func (h *agentHandler) requestElevation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Check scope exists
-	scope, ok := cred.Scopes[req.Scope]
-	if !ok {
-		h.jsonError(w, "scope not found", http.StatusNotFound)
-		return
-	}
-
-	// Check if elevation is needed
-	if scope.Permanent {
-		h.jsonError(w, "scope does not require elevation", http.StatusBadRequest)
+	// Check if read-write access is configured
+	if cred.ReadWrite == nil {
+		h.jsonError(w, "service has no write access configured", http.StatusBadRequest)
 		return
 	}
 
@@ -207,7 +204,7 @@ func (h *agentHandler) getElevationStatus(w http.ResponseWriter, r *http.Request
 
 func (h *agentHandler) getCredential(w http.ResponseWriter, r *http.Request) {
 	service := chi.URLParam(r, "service")
-	scopeName := chi.URLParam(r, "scope")
+	scopeName := chi.URLParam(r, "scope") // "read" or "write"
 
 	cred, err := h.store.GetCredential(service)
 	if err != nil {
@@ -220,15 +217,24 @@ func (h *agentHandler) getCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope, ok := cred.Scopes[scopeName]
-	if !ok {
-		h.jsonError(w, "scope not found", http.StatusNotFound)
-		return
-	}
+	var accessLevel *store.AccessLevel
 
-	// Check access
-	if !scope.Permanent {
-		// Need active elevation
+	switch scopeName {
+	case "read", "r":
+		// Read access is always available
+		if cred.Read == nil {
+			h.jsonError(w, "no read access configured", http.StatusNotFound)
+			return
+		}
+		accessLevel = cred.Read
+
+	case "write", "rw", "readwrite":
+		// Write access requires elevation
+		if cred.ReadWrite == nil {
+			h.jsonError(w, "no write access configured", http.StatusNotFound)
+			return
+		}
+		// Check for active elevation
 		active, err := h.store.GetActiveElevation(service, scopeName)
 		if err != nil {
 			h.logger.Error("get active elevation failed", "error", err)
@@ -236,9 +242,14 @@ func (h *agentHandler) getCredential(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if active == nil {
-			h.jsonError(w, "elevation required", http.StatusForbidden)
+			h.jsonError(w, "elevation required for write access", http.StatusForbidden)
 			return
 		}
+		accessLevel = cred.ReadWrite
+
+	default:
+		h.jsonError(w, "scope must be 'read' or 'write'", http.StatusBadRequest)
+		return
 	}
 
 	// Audit log
@@ -252,9 +263,9 @@ func (h *agentHandler) getCredential(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h.jsonResponse(w, CredentialResponse{
-		Token:        scope.Token,
-		RefreshToken: scope.RefreshToken,
-		ExpiresAt:    scope.ExpiresAt,
+		Token:        accessLevel.Token,
+		RefreshToken: accessLevel.RefreshToken,
+		ExpiresAt:    accessLevel.ExpiresAt,
 	})
 }
 
@@ -274,17 +285,23 @@ func (h *agentHandler) listScopes(w http.ResponseWriter, r *http.Request) {
 		svc := ServiceScopes{
 			ID:          cred.Service,
 			DisplayName: cred.DisplayName,
-			Scopes:      make([]string, 0, len(cred.Scopes)),
+			Scopes:      []string{},
 			Elevated:    []string{},
 		}
 
-		for name := range cred.Scopes {
-			svc.Scopes = append(svc.Scopes, name)
+		// Add "read" if available
+		if cred.Read != nil {
+			svc.Scopes = append(svc.Scopes, "read")
+		}
+
+		// Add "write" if available
+		if cred.ReadWrite != nil {
+			svc.Scopes = append(svc.Scopes, "write")
 
 			// Check if currently elevated
-			active, _ := h.store.GetActiveElevation(cred.Service, name)
+			active, _ := h.store.GetActiveElevation(cred.Service, "write")
 			if active != nil {
-				svc.Elevated = append(svc.Elevated, name)
+				svc.Elevated = append(svc.Elevated, "write")
 			}
 		}
 

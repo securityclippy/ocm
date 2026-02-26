@@ -23,25 +23,40 @@ type Store struct {
 	mu        sync.RWMutex
 }
 
-// Credential represents a stored credential with multiple scopes.
+// Credential represents a stored credential with read and optional read-write access.
 type Credential struct {
-	ID          string            `json:"id"`
-	Service     string            `json:"service"`
-	DisplayName string            `json:"displayName"`
-	Type        string            `json:"type"` // oauth2, token, pat, api_key
-	Scopes      map[string]*Scope `json:"scopes"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
+	ID          string       `json:"id"`
+	Service     string       `json:"service"`
+	DisplayName string       `json:"displayName"`
+	Type        string       `json:"type"` // oauth2, token, pat, api_key
+
+	// Read access - always available, injected permanently
+	Read *AccessLevel `json:"read"`
+
+	// ReadWrite access - requires elevation, injected temporarily (optional)
+	ReadWrite *AccessLevel `json:"readWrite,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// Scope represents a single permission scope within a credential.
+// AccessLevel represents a single access level (read or read-write).
+type AccessLevel struct {
+	EnvVar       string        `json:"envVar"`                 // Env var name (e.g., "GITHUB_TOKEN")
+	Token        string        `json:"token,omitempty"`        // The credential value (encrypted at rest)
+	RefreshToken string        `json:"refreshToken,omitempty"` // For OAuth refresh
+	ExpiresAt    *time.Time    `json:"expiresAt,omitempty"`    // Token expiration (not elevation)
+	MaxTTL       time.Duration `json:"maxTTL,omitempty"`       // Max elevation duration (only for ReadWrite)
+}
+
+// Legacy Scope for migration compatibility
 type Scope struct {
 	Name             string        `json:"name"`
-	EnvVar           string        `json:"envVar"`           // Env var name (e.g., "GMAIL_TOKEN")
-	Permanent        bool          `json:"permanent"`        // Always available if true
-	RequiresApproval bool          `json:"requiresApproval"` // Needs elevation if true
-	MaxTTL           time.Duration `json:"maxTTL"`           // Maximum elevation duration
-	Token            string        `json:"token,omitempty"`  // Encrypted at rest
+	EnvVar           string        `json:"envVar"`
+	Permanent        bool          `json:"permanent"`
+	RequiresApproval bool          `json:"requiresApproval"`
+	MaxTTL           time.Duration `json:"maxTTL"`
+	Token            string        `json:"token,omitempty"`
 	RefreshToken     string        `json:"refreshToken,omitempty"`
 	ExpiresAt        *time.Time    `json:"expiresAt,omitempty"`
 }
@@ -176,19 +191,29 @@ func (s *Store) decrypt(ciphertext []byte) ([]byte, error) {
 	return s.gcm.Open(nil, nonce, ciphertext, nil)
 }
 
+// credentialData is the internal storage format for credentials.
+type credentialData struct {
+	Read      *AccessLevel `json:"read"`
+	ReadWrite *AccessLevel `json:"readWrite,omitempty"`
+}
+
 // SaveCredential saves or updates a credential.
 func (s *Store) SaveCredential(cred *Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Serialize and encrypt scopes
-	scopesJSON, err := json.Marshal(cred.Scopes)
-	if err != nil {
-		return fmt.Errorf("marshal scopes: %w", err)
+	// Serialize and encrypt access levels
+	data := credentialData{
+		Read:      cred.Read,
+		ReadWrite: cred.ReadWrite,
 	}
-	encrypted, err := s.encrypt(scopesJSON)
+	dataJSON, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("encrypt scopes: %w", err)
+		return fmt.Errorf("marshal credential data: %w", err)
+	}
+	encrypted, err := s.encrypt(dataJSON)
+	if err != nil {
+		return fmt.Errorf("encrypt credential data: %w", err)
 	}
 
 	now := time.Now()
@@ -226,13 +251,51 @@ func (s *Store) GetCredential(service string) (*Credential, error) {
 		return nil, fmt.Errorf("query credential: %w", err)
 	}
 
-	// Decrypt and deserialize scopes
+	// Decrypt and deserialize
 	decrypted, err := s.decrypt(encrypted)
 	if err != nil {
-		return nil, fmt.Errorf("decrypt scopes: %w", err)
+		return nil, fmt.Errorf("decrypt credential data: %w", err)
 	}
-	if err := json.Unmarshal(decrypted, &cred.Scopes); err != nil {
-		return nil, fmt.Errorf("unmarshal scopes: %w", err)
+
+	// Try new format first
+	var data credentialData
+	if err := json.Unmarshal(decrypted, &data); err == nil && data.Read != nil {
+		cred.Read = data.Read
+		cred.ReadWrite = data.ReadWrite
+		return &cred, nil
+	}
+
+	// Fall back to legacy scopes format for migration
+	var scopes map[string]*Scope
+	if err := json.Unmarshal(decrypted, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal credential data: %w", err)
+	}
+
+	// Convert legacy scopes to new format
+	for name, scope := range scopes {
+		if scope.Permanent || !scope.RequiresApproval {
+			// This was a permanent/read scope
+			if cred.Read == nil {
+				cred.Read = &AccessLevel{
+					EnvVar:       scope.EnvVar,
+					Token:        scope.Token,
+					RefreshToken: scope.RefreshToken,
+					ExpiresAt:    scope.ExpiresAt,
+				}
+			}
+		} else {
+			// This was an elevation-required scope
+			if cred.ReadWrite == nil {
+				cred.ReadWrite = &AccessLevel{
+					EnvVar:       scope.EnvVar,
+					Token:        scope.Token,
+					RefreshToken: scope.RefreshToken,
+					ExpiresAt:    scope.ExpiresAt,
+					MaxTTL:       scope.MaxTTL,
+				}
+			}
+		}
+		_ = name // Silence unused warning
 	}
 
 	return &cred, nil
@@ -262,16 +325,45 @@ func (s *Store) ListCredentials() ([]*Credential, error) {
 
 		decrypted, err := s.decrypt(encrypted)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt scopes: %w", err)
-		}
-		if err := json.Unmarshal(decrypted, &cred.Scopes); err != nil {
-			return nil, fmt.Errorf("unmarshal scopes: %w", err)
+			return nil, fmt.Errorf("decrypt credential data: %w", err)
 		}
 
-		// Clear tokens for list view
-		for _, scope := range cred.Scopes {
-			scope.Token = ""
-			scope.RefreshToken = ""
+		// Try new format first
+		var data credentialData
+		if err := json.Unmarshal(decrypted, &data); err == nil && data.Read != nil {
+			cred.Read = data.Read
+			cred.ReadWrite = data.ReadWrite
+		} else {
+			// Fall back to legacy format
+			var scopes map[string]*Scope
+			if err := json.Unmarshal(decrypted, &scopes); err == nil {
+				for _, scope := range scopes {
+					if scope.Permanent || !scope.RequiresApproval {
+						if cred.Read == nil {
+							cred.Read = &AccessLevel{
+								EnvVar: scope.EnvVar,
+							}
+						}
+					} else {
+						if cred.ReadWrite == nil {
+							cred.ReadWrite = &AccessLevel{
+								EnvVar: scope.EnvVar,
+								MaxTTL: scope.MaxTTL,
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Clear tokens for list view (security)
+		if cred.Read != nil {
+			cred.Read.Token = ""
+			cred.Read.RefreshToken = ""
+		}
+		if cred.ReadWrite != nil {
+			cred.ReadWrite.Token = ""
+			cred.ReadWrite.RefreshToken = ""
 		}
 
 		creds = append(creds, &cred)

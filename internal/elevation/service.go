@@ -68,14 +68,14 @@ func (s *Service) ApproveElevation(elevationID string, ttl time.Duration, approv
 		return fmt.Errorf("credential not found")
 	}
 
-	scope, ok := cred.Scopes[elev.Scope]
-	if !ok {
-		return fmt.Errorf("scope not found")
+	// For the new model, scope "write" or "readwrite" means ReadWrite access
+	if cred.ReadWrite == nil {
+		return fmt.Errorf("credential has no read-write access configured")
 	}
 
 	// Enforce maxTTL
-	if scope.MaxTTL > 0 && ttl > scope.MaxTTL {
-		ttl = scope.MaxTTL
+	if cred.ReadWrite.MaxTTL > 0 && ttl > cred.ReadWrite.MaxTTL {
+		ttl = cred.ReadWrite.MaxTTL
 	}
 
 	// Update elevation status
@@ -84,8 +84,8 @@ func (s *Service) ApproveElevation(elevationID string, ttl time.Duration, approv
 		return fmt.Errorf("update elevation: %w", err)
 	}
 
-	// Inject credential into Gateway
-	if err := s.injectCredential(cred, scope); err != nil {
+	// Inject read-write credential into Gateway
+	if err := s.injectReadWriteCredential(cred); err != nil {
 		// Rollback elevation status on failure
 		s.store.UpdateElevation(elevationID, "pending", "", nil)
 		return fmt.Errorf("inject credential: %w", err)
@@ -162,7 +162,7 @@ func (s *Service) RevokeElevation(service, scope string, reason string) error {
 	return nil
 }
 
-// syncCredentialsToGateway syncs all permanent credentials to the Gateway on startup.
+// syncCredentialsToGateway syncs all read credentials to the Gateway on startup.
 func (s *Service) syncCredentialsToGateway() {
 	creds, err := s.store.ListCredentials()
 	if err != nil {
@@ -176,13 +176,12 @@ func (s *Service) syncCredentialsToGateway() {
 		if fullCred == nil {
 			continue
 		}
-		for _, scope := range fullCred.Scopes {
-			if scope.Permanent && scope.EnvVar != "" && scope.Token != "" {
-				envCreds = append(envCreds, gateway.CredentialEnv{
-					Name:  scope.EnvVar,
-					Value: scope.Token,
-				})
-			}
+		// Sync read credentials (always available)
+		if fullCred.Read != nil && fullCred.Read.EnvVar != "" && fullCred.Read.Token != "" {
+			envCreds = append(envCreds, gateway.CredentialEnv{
+				Name:  fullCred.Read.EnvVar,
+				Value: fullCred.Read.Token,
+			})
 		}
 	}
 
@@ -195,43 +194,45 @@ func (s *Service) syncCredentialsToGateway() {
 	}
 }
 
-// injectCredential injects a credential into the Gateway.
-func (s *Service) injectCredential(cred *store.Credential, scope *store.Scope) error {
-	if scope.EnvVar == "" {
-		return fmt.Errorf("scope has no env var configured")
+// injectReadWriteCredential injects a read-write credential into the Gateway.
+func (s *Service) injectReadWriteCredential(cred *store.Credential) error {
+	if cred.ReadWrite == nil {
+		return fmt.Errorf("no read-write access configured")
 	}
-	if scope.Token == "" {
-		return fmt.Errorf("scope has no token")
+	if cred.ReadWrite.EnvVar == "" {
+		return fmt.Errorf("read-write has no env var configured")
+	}
+	if cred.ReadWrite.Token == "" {
+		return fmt.Errorf("read-write has no token")
 	}
 
 	return s.gateway.SetCredentials([]gateway.CredentialEnv{
-		{Name: scope.EnvVar, Value: scope.Token},
+		{Name: cred.ReadWrite.EnvVar, Value: cred.ReadWrite.Token},
 	})
 }
 
-// removeOrDowngradeCredential removes a credential or downgrades to a permanent scope.
+// removeOrDowngradeCredential removes a credential or downgrades to read-only.
 func (s *Service) removeOrDowngradeCredential(service, scopeName string) error {
 	cred, err := s.store.GetCredential(service)
 	if err != nil || cred == nil {
 		return err
 	}
 
-	scope, ok := cred.Scopes[scopeName]
-	if !ok {
+	// If both Read and ReadWrite use the same env var, downgrade to Read
+	// Otherwise, clear the ReadWrite env var
+	if cred.ReadWrite == nil {
 		return nil
 	}
 
-	// Check if there's a permanent (read-only) scope we can downgrade to
-	// Convention: "read" scope is permanent, "write" scope requires elevation
-	if readScope, ok := cred.Scopes["read"]; ok && readScope.Permanent && readScope.EnvVar == scope.EnvVar {
-		// Downgrade to read-only token
+	if cred.Read != nil && cred.Read.EnvVar == cred.ReadWrite.EnvVar && cred.Read.Token != "" {
+		// Downgrade to read-only token (same env var)
 		return s.gateway.SetCredentials([]gateway.CredentialEnv{
-			{Name: readScope.EnvVar, Value: readScope.Token},
+			{Name: cred.Read.EnvVar, Value: cred.Read.Token},
 		})
 	}
 
-	// No downgrade available - clear the credential
-	return s.gateway.ClearCredentials([]string{scope.EnvVar})
+	// Different env vars or no read token - clear the read-write credential
+	return s.gateway.ClearCredentials([]string{cred.ReadWrite.EnvVar})
 }
 
 // setExpiryTimer sets a timer to auto-expire an elevation.

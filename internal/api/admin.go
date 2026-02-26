@@ -98,20 +98,19 @@ type DashboardResponse struct {
 
 // CreateCredentialRequest is the request body for creating credentials.
 type CreateCredentialRequest struct {
-	Service     string                 `json:"service"`
-	DisplayName string                 `json:"displayName"`
-	Type        string                 `json:"type"`
-	Scopes      map[string]ScopeConfig `json:"scopes"`
+	Service     string             `json:"service"`
+	DisplayName string             `json:"displayName"`
+	Type        string             `json:"type"`
+	Read        *AccessLevelConfig `json:"read"`               // Required - always available
+	ReadWrite   *AccessLevelConfig `json:"readWrite,omitempty"` // Optional - requires elevation
 }
 
-// ScopeConfig is the configuration for a single scope.
-type ScopeConfig struct {
-	EnvVar           string `json:"envVar"`           // e.g., "GMAIL_TOKEN"
-	Permanent        bool   `json:"permanent"`
-	RequiresApproval bool   `json:"requiresApproval"`
-	MaxTTL           string `json:"maxTTL"` // e.g., "1h", "30m"
-	Token            string `json:"token"`
-	RefreshToken     string `json:"refreshToken,omitempty"`
+// AccessLevelConfig is the configuration for a single access level.
+type AccessLevelConfig struct {
+	EnvVar       string `json:"envVar"`                 // e.g., "GITHUB_TOKEN"
+	Token        string `json:"token"`                  // The credential value
+	RefreshToken string `json:"refreshToken,omitempty"` // For OAuth
+	MaxTTL       string `json:"maxTTL,omitempty"`       // e.g., "1h" - only for ReadWrite
 }
 
 // ApproveRequest is the request body for approving an elevation.
@@ -263,36 +262,45 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Convert to store.Credential
+	if req.Read == nil || req.Read.EnvVar == "" {
+		h.jsonError(w, "read access with envVar is required", http.StatusBadRequest)
+		return
+	}
+
+	// Convert to store.Credential with new Read/ReadWrite model
 	cred := &store.Credential{
 		ID:          generateID("cred"),
 		Service:     req.Service,
 		DisplayName: req.DisplayName,
 		Type:        req.Type,
-		Scopes:      make(map[string]*store.Scope),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Read: &store.AccessLevel{
+			EnvVar:       req.Read.EnvVar,
+			Token:        req.Read.Token,
+			RefreshToken: req.Read.RefreshToken,
+		},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	for name, cfg := range req.Scopes {
+	// Add ReadWrite access if provided
+	if req.ReadWrite != nil && req.ReadWrite.EnvVar != "" {
 		var maxTTL time.Duration
-		if cfg.MaxTTL != "" {
+		if req.ReadWrite.MaxTTL != "" {
 			var err error
-			maxTTL, err = time.ParseDuration(cfg.MaxTTL)
+			maxTTL, err = time.ParseDuration(req.ReadWrite.MaxTTL)
 			if err != nil {
-				h.jsonError(w, "invalid maxTTL format", http.StatusBadRequest)
+				h.jsonError(w, "invalid maxTTL format for readWrite", http.StatusBadRequest)
 				return
 			}
+		} else {
+			maxTTL = 30 * time.Minute // Default max TTL
 		}
 
-		cred.Scopes[name] = &store.Scope{
-			Name:             name,
-			EnvVar:           cfg.EnvVar,
-			Permanent:        cfg.Permanent,
-			RequiresApproval: cfg.RequiresApproval,
-			MaxTTL:           maxTTL,
-			Token:            cfg.Token,
-			RefreshToken:     cfg.RefreshToken,
+		cred.ReadWrite = &store.AccessLevel{
+			EnvVar:       req.ReadWrite.EnvVar,
+			Token:        req.ReadWrite.Token,
+			RefreshToken: req.ReadWrite.RefreshToken,
+			MaxTTL:       maxTTL,
 		}
 	}
 
@@ -302,13 +310,10 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Sync permanent credentials to Gateway .env file (without restart yet)
-	// The setup wizard will trigger restart after all credentials are added
+	// Sync read credentials to Gateway .env file (always available)
 	if h.elevation != nil && h.elevation.Gateway() != nil {
-		for _, scope := range cred.Scopes {
-			if scope.Permanent && scope.EnvVar != "" && scope.Token != "" {
-				h.elevation.Gateway().WriteCredentialToEnv(scope.EnvVar, scope.Token)
-			}
+		if cred.Read != nil && cred.Read.EnvVar != "" && cred.Read.Token != "" {
+			h.elevation.Gateway().WriteCredentialToEnv(cred.Read.EnvVar, cred.Read.Token)
 		}
 	}
 
@@ -318,7 +323,7 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		Timestamp: time.Now(),
 		Action:    "credential_created",
 		Service:   req.Service,
-		Actor:     "admin", // TODO: get from auth
+		Actor:     "admin",
 	})
 
 	h.logger.Info("credential created", "service", req.Service)
@@ -366,26 +371,43 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 	existing.Type = req.Type
 	existing.UpdatedAt = time.Now()
 
-	for name, cfg := range req.Scopes {
-		var maxTTL time.Duration
-		if cfg.MaxTTL != "" {
-			maxTTL, _ = time.ParseDuration(cfg.MaxTTL)
+	// Update Read access
+	if req.Read != nil {
+		existing.Read = &store.AccessLevel{
+			EnvVar:       req.Read.EnvVar,
+			Token:        req.Read.Token,
+			RefreshToken: req.Read.RefreshToken,
 		}
+	}
 
-		existing.Scopes[name] = &store.Scope{
-			Name:             name,
-			EnvVar:           cfg.EnvVar,
-			Permanent:        cfg.Permanent,
-			RequiresApproval: cfg.RequiresApproval,
-			MaxTTL:           maxTTL,
-			Token:            cfg.Token,
-			RefreshToken:     cfg.RefreshToken,
+	// Update ReadWrite access
+	if req.ReadWrite != nil && req.ReadWrite.EnvVar != "" {
+		var maxTTL time.Duration
+		if req.ReadWrite.MaxTTL != "" {
+			maxTTL, _ = time.ParseDuration(req.ReadWrite.MaxTTL)
+		} else {
+			maxTTL = 30 * time.Minute
 		}
+		existing.ReadWrite = &store.AccessLevel{
+			EnvVar:       req.ReadWrite.EnvVar,
+			Token:        req.ReadWrite.Token,
+			RefreshToken: req.ReadWrite.RefreshToken,
+			MaxTTL:       maxTTL,
+		}
+	} else {
+		existing.ReadWrite = nil // Clear if not provided
 	}
 
 	if err := h.store.SaveCredential(existing); err != nil {
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Sync read credentials to Gateway .env file
+	if h.elevation != nil && h.elevation.Gateway() != nil {
+		if existing.Read != nil && existing.Read.EnvVar != "" && existing.Read.Token != "" {
+			h.elevation.Gateway().WriteCredentialToEnv(existing.Read.EnvVar, existing.Read.Token)
+		}
 	}
 
 	// Audit log
