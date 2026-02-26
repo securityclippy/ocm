@@ -529,12 +529,37 @@ func (c *RPCClient) GetDeviceID() string {
 var ErrRestartDisabled = fmt.Errorf("gateway restart disabled")
 
 // RestartGateway triggers an OpenClaw Gateway restart via RPC.
-// Requires `commands.restart: true` in OpenClaw config.
-// The reason is logged by the Gateway.
+// Uses config.patch with a no-op patch to trigger restart.
+// The reason/note is logged by the Gateway.
 func (c *RPCClient) RestartGateway(reason string) error {
-	resp, err := c.call("restart", map[string]interface{}{
-		"reason":   reason,
-		"delayMs":  1000, // 1 second delay to allow response
+	// First, get current config to get the baseHash
+	getResp, err := c.call("config.get", map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("config.get failed: %w", err)
+	}
+	if getResp.OK != nil && !*getResp.OK {
+		errMsg := "unknown error"
+		if getResp.Error != nil {
+			errMsg = getResp.Error.Message
+		}
+		return fmt.Errorf("config.get error: %s", errMsg)
+	}
+	
+	// Extract baseHash from response
+	var baseHash string
+	if payload, ok := getResp.Payload.(map[string]interface{}); ok {
+		if hash, ok := payload["hash"].(string); ok {
+			baseHash = hash
+		}
+	}
+	
+	// Use config.patch with empty patch to trigger restart
+	// The patch is an empty object "{}" which makes no changes but still triggers restart
+	resp, err := c.call("config.patch", map[string]interface{}{
+		"raw":            "{}",  // Empty patch - no config changes
+		"baseHash":       baseHash,
+		"note":           reason,
+		"restartDelayMs": 1000,
 	})
 	if err != nil {
 		return err
@@ -546,8 +571,8 @@ func (c *RPCClient) RestartGateway(reason string) error {
 			errMsg = resp.Error.Message
 			errCode = resp.Error.Code
 		}
-		// Detect restart disabled error
-		if errCode == "INVALID_REQUEST" && (strings.Contains(errMsg, "unknown method") || strings.Contains(errMsg, "restart")) {
+		// Detect various failure modes
+		if errCode == "INVALID_REQUEST" && strings.Contains(errMsg, "unknown method") {
 			return ErrRestartDisabled
 		}
 		if strings.Contains(errMsg, "disabled") || strings.Contains(errMsg, "not enabled") {

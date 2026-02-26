@@ -326,7 +326,7 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 			if err := h.elevation.Gateway().RestartGateway("credential created: " + req.Service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
 				if err == gateway.ErrRestartDisabled {
-					restartWarning = "Gateway restart is disabled. To enable automatic credential sync, add to your OpenClaw config:\n\n```json\n{\n  \"commands\": {\n    \"restart\": true\n  }\n}\n```\n\nThen restart OpenClaw to apply the config change."
+					restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
 				}
 			}
 		}
@@ -438,7 +438,7 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 			if err := h.elevation.Gateway().RestartGateway("credential updated: " + service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
 				if err == gateway.ErrRestartDisabled {
-					restartWarning = "Gateway restart is disabled. To enable automatic credential sync, add to your OpenClaw config:\n\n```json\n{\n  \"commands\": {\n    \"restart\": true\n  }\n}\n```\n\nThen restart OpenClaw to apply the config change."
+					restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
 				}
 			}
 		}
