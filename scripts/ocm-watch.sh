@@ -24,8 +24,8 @@ trap cleanup SIGINT SIGTERM
 start_logs() {
     # Kill existing log stream if any
     [ -n "$LOGS_PID" ] && kill "$LOGS_PID" 2>/dev/null
-    # Start new log stream in background
-    docker compose -f "$COMPOSE_FILE" logs -f ocm &
+    # Start new log stream in background (full stack)
+    docker compose -f "$COMPOSE_FILE" logs -f &
     LOGS_PID=$!
 }
 
