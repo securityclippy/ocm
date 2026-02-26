@@ -531,7 +531,39 @@ var ErrRestartDisabled = fmt.Errorf("gateway restart disabled")
 // RestartGateway triggers an OpenClaw Gateway restart via RPC.
 // Uses config.patch with a no-op patch to trigger restart.
 // The reason/note is logged by the Gateway.
+// Includes retry logic for transient EBUSY errors on WSL2/Windows.
 func (c *RPCClient) RestartGateway(reason string) error {
+	const maxRetries = 5
+	var lastErr error
+	
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 100ms, 200ms, 400ms, 800ms
+			backoff := time.Duration(100<<attempt) * time.Millisecond
+			time.Sleep(backoff)
+		}
+		
+		err := c.tryRestartGateway(reason)
+		if err == nil {
+			return nil
+		}
+		
+		// Check if it's a retryable EBUSY error
+		errStr := err.Error()
+		if strings.Contains(errStr, "EBUSY") || strings.Contains(errStr, "resource busy") {
+			lastErr = err
+			continue // Retry
+		}
+		
+		// Non-retryable error
+		return err
+	}
+	
+	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// tryRestartGateway attempts a single Gateway restart via config.patch.
+func (c *RPCClient) tryRestartGateway(reason string) error {
 	// First, get current config to get the baseHash
 	getResp, err := c.call("config.get", map[string]interface{}{})
 	if err != nil {
