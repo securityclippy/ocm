@@ -523,3 +523,23 @@ func (c *RPCClient) GetDeviceID() string {
 	}
 	return ""
 }
+
+// RestartGateway triggers an OpenClaw Gateway restart via RPC.
+// The reason is logged by the Gateway.
+func (c *RPCClient) RestartGateway(reason string) error {
+	resp, err := c.call("gateway.restart", map[string]interface{}{
+		"reason":   reason,
+		"delayMs":  1000, // 1 second delay to allow response
+	})
+	if err != nil {
+		return err
+	}
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+		}
+		return fmt.Errorf("RPC error: %s", errMsg)
+	}
+	return nil
+}

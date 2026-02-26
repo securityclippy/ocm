@@ -65,19 +65,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	// Initialize gateway client (for env file management)
-	gwClient := gateway.NewClient(serveFlags.gatewayURL, serveFlags.envFile)
-	slog.Info("gateway client configured", "url", serveFlags.gatewayURL, "envFile", gwClient.EnvFilePath)
-
-	// Initialize RPC client (for device pairing management)
+	// Initialize RPC client (for device pairing and gateway restart)
 	gatewayToken := os.Getenv("OPENCLAW_GATEWAY_TOKEN")
 	var rpcClient *gateway.RPCClient
 	if gatewayToken != "" {
 		rpcClient = gateway.NewRPCClient(serveFlags.gatewayURL, gatewayToken)
 		slog.Info("gateway RPC client configured", "url", serveFlags.gatewayURL)
 	} else {
-		slog.Warn("OPENCLAW_GATEWAY_TOKEN not set - device pairing management disabled")
+		slog.Warn("OPENCLAW_GATEWAY_TOKEN not set - device pairing and gateway restart disabled")
 	}
+
+	// Initialize gateway client (for env file management + restart via RPC)
+	gwClient := gateway.NewClient(serveFlags.gatewayURL, serveFlags.envFile, rpcClient, logger)
+	slog.Info("gateway client configured", "url", serveFlags.gatewayURL, "envFile", gwClient.EnvFilePath)
 
 	// Initialize elevation service
 	elevSvc := elevation.NewService(db, gwClient, logger)

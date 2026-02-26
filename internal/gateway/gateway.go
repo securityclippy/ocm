@@ -3,6 +3,7 @@ package gateway
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,21 +12,28 @@ import (
 // Client manages communication with OpenClaw Gateway.
 type Client struct {
 	// GatewayURL is the OpenClaw Gateway RPC endpoint (e.g., http://localhost:18789)
-	// Note: Currently unused - restart requires WebSocket RPC (TODO)
 	GatewayURL string
 	// EnvFilePath is the path to OpenClaw's .env file (e.g., ~/.openclaw/.env)
 	EnvFilePath string
+	// RPC client for Gateway communication
+	rpcClient *RPCClient
+	logger    *slog.Logger
 }
 
 // NewClient creates a new Gateway client.
-func NewClient(gatewayURL, envFilePath string) *Client {
+func NewClient(gatewayURL, envFilePath string, rpcClient *RPCClient, logger *slog.Logger) *Client {
 	if envFilePath == "" {
 		home, _ := os.UserHomeDir()
 		envFilePath = filepath.Join(home, ".openclaw", ".env")
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Client{
 		GatewayURL:  gatewayURL,
 		EnvFilePath: envFilePath,
+		rpcClient:   rpcClient,
+		logger:      logger,
 	}
 }
 
@@ -104,15 +112,20 @@ func (c *Client) SyncAndRestart(reason string) error {
 	return c.RestartGateway(reason)
 }
 
-// RestartGateway triggers a Gateway restart.
-// Note: OpenClaw uses WebSocket RPC, not HTTP REST. For now, we skip the
-// automatic restart and rely on the user to restart OpenClaw manually,
-// or on OpenClaw reading the updated .env on its next natural restart.
+// RestartGateway triggers a Gateway restart via WebSocket RPC.
 func (c *Client) RestartGateway(reason string) error {
-	// TODO: Implement proper WebSocket RPC client to call gateway.restart
-	// For now, credentials are written to .env and will be picked up on
-	// the next OpenClaw restart. Log this for transparency.
-	return nil // Skip restart - not yet implemented
+	if c.rpcClient == nil {
+		c.logger.Warn("gateway restart skipped: no RPC client configured")
+		return nil
+	}
+	
+	c.logger.Info("triggering gateway restart", "reason", reason)
+	if err := c.rpcClient.RestartGateway(reason); err != nil {
+		c.logger.Error("gateway restart failed", "error", err)
+		return err
+	}
+	c.logger.Info("gateway restart triggered successfully")
+	return nil
 }
 
 // GetCurrentCredentials reads the current credentials from the .env file.
