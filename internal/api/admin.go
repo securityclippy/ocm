@@ -133,6 +133,7 @@ var requiredModelProviders = []string{"anthropic", "openai", "openrouter", "groq
 func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 	creds, err := h.store.ListCredentials()
 	if err != nil {
+		h.logger.Error("setup status: failed to list credentials", "error", err)
 		h.jsonError(w, "failed to check credentials", http.StatusInternalServerError)
 		return
 	}
@@ -143,11 +144,14 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 	var configuredKeys []string
 	hasModelProvider := false
 
+	h.logger.Info("setup status check", "credentialCount", len(creds))
 	for _, cred := range creds {
 		configuredKeys = append(configuredKeys, cred.Service)
+		h.logger.Info("checking credential", "service", cred.Service, "hasRead", cred.Read != nil, "hasReadWrite", cred.ReadWrite != nil)
 		for _, provider := range requiredModelProviders {
 			if cred.Service == provider {
 				// Provider credential exists - setup is complete
+				h.logger.Info("found model provider", "provider", provider)
 				hasModelProvider = true
 				break
 			}
