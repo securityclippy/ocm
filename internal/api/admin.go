@@ -315,10 +315,17 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Sync read credentials to Gateway .env file (always available)
+	// Sync read credentials to Gateway .env file and restart
 	if h.elevation != nil && h.elevation.Gateway() != nil {
 		if cred.Read != nil && cred.Read.EnvVar != "" && cred.Read.Token != "" {
-			h.elevation.Gateway().WriteCredentialToEnv(cred.Read.EnvVar, cred.Read.Token)
+			if err := h.elevation.Gateway().WriteCredentialToEnv(cred.Read.EnvVar, cred.Read.Token); err != nil {
+				h.logger.Error("failed to write credential to env", "error", err)
+			}
+			// Trigger Gateway restart to pick up new credential
+			if err := h.elevation.Gateway().RestartGateway("credential created: " + req.Service); err != nil {
+				h.logger.Error("failed to restart gateway", "error", err)
+				// Don't fail the request - credential is saved, just needs manual restart
+			}
 		}
 	}
 
@@ -408,10 +415,16 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Sync read credentials to Gateway .env file
+	// Sync read credentials to Gateway .env file and restart
 	if h.elevation != nil && h.elevation.Gateway() != nil {
 		if existing.Read != nil && existing.Read.EnvVar != "" && existing.Read.Token != "" {
-			h.elevation.Gateway().WriteCredentialToEnv(existing.Read.EnvVar, existing.Read.Token)
+			if err := h.elevation.Gateway().WriteCredentialToEnv(existing.Read.EnvVar, existing.Read.Token); err != nil {
+				h.logger.Error("failed to write credential to env", "error", err)
+			}
+			// Trigger Gateway restart to pick up updated credential
+			if err := h.elevation.Gateway().RestartGateway("credential updated: " + service); err != nil {
+				h.logger.Error("failed to restart gateway", "error", err)
+			}
 		}
 	}
 
