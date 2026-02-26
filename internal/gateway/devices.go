@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -300,11 +301,15 @@ func (c *RPCClient) Connect() error {
 		pubKeyB64 := base64.RawURLEncoding.EncodeToString(c.identity.PublicKey)
 		sigB64 := base64.RawURLEncoding.EncodeToString(signature)
 
-		// Debug logging
-		fmt.Fprintf(os.Stderr, "DEBUG: payload=%s\n", payload)
-		fmt.Fprintf(os.Stderr, "DEBUG: deviceId=%s\n", c.identity.DeviceID)
-		fmt.Fprintf(os.Stderr, "DEBUG: publicKey=%s\n", pubKeyB64)
-		fmt.Fprintf(os.Stderr, "DEBUG: signature=%s\n", sigB64)
+		// Debug logging via slog
+		slog.Info("device auth debug",
+			"payload", payload,
+			"deviceId", c.identity.DeviceID,
+			"publicKey", pubKeyB64,
+			"signedAt", signedAt,
+			"nonce", challenge.Nonce,
+			"token", c.token,
+		)
 
 		// OpenClaw expects base64url encoding for public key and signature
 		connectParams["device"] = map[string]interface{}{
