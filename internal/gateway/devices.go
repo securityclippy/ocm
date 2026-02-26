@@ -159,10 +159,9 @@ func computeDeviceID(publicKey ed25519.PublicKey) string {
 	return hex.EncodeToString(hash[:]) // Full 32 bytes = 64 hex chars
 }
 
-// signPayload signs a payload for device auth.
-func (id *deviceIdentity) signPayload(payload string) string {
-	signature := ed25519.Sign(id.PrivateKey, []byte(payload))
-	return base64.StdEncoding.EncodeToString(signature)
+// sign signs a payload for device auth and returns raw bytes.
+func (id *deviceIdentity) sign(payload string) []byte {
+	return ed25519.Sign(id.PrivateKey, []byte(payload))
 }
 
 // buildAuthPayload builds the payload to sign for device auth.
@@ -264,12 +263,12 @@ func (c *RPCClient) Connect() error {
 	// Add device identity if available
 	if c.identity != nil {
 		payload := buildAuthPayload(clientID, clientMode, role, scopes, signedAt, c.token, challenge.Nonce)
-		signature := c.identity.signPayload(payload)
 
+		// OpenClaw expects base64url encoding for public key and signature
 		connectParams["device"] = map[string]interface{}{
 			"id":        c.identity.DeviceID,
-			"publicKey": base64.StdEncoding.EncodeToString(c.identity.PublicKey),
-			"signature": signature,
+			"publicKey": base64.RawURLEncoding.EncodeToString(c.identity.PublicKey),
+			"signature": base64.RawURLEncoding.EncodeToString(c.identity.sign(payload)),
 			"signedAt":  signedAt,
 			"nonce":     challenge.Nonce,
 		}
