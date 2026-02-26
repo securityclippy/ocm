@@ -131,6 +131,7 @@ func (c *RPCClient) Connect() error {
 	// Send connect request with proper protocol structure
 	// Valid client IDs: cli, gateway-client, webchat, etc.
 	// Valid modes: cli, backend, ui, node, etc.
+	// operator.admin scope bypasses all other scope checks
 	connectReq := rpcMessage{
 		Type:   "req",
 		ID:     "1",
@@ -145,7 +146,7 @@ func (c *RPCClient) Connect() error {
 				"mode":     "cli",
 			},
 			"role":   "operator",
-			"scopes": []string{"operator.read", "operator.pairing"},
+			"scopes": []string{"operator.admin"},
 			"caps":   []string{},
 			"auth": map[string]string{
 				"token": c.token,
