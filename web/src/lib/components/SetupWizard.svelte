@@ -45,24 +45,27 @@
 			return;
 		}
 
+		if (!envVar.trim()) {
+			error = 'Environment variable is required';
+			return;
+		}
+
 		isCreating = true;
 		error = '';
 
 		try {
 			const template = getTemplate(selectedProvider);
+			// For LLM providers, we only need a "read" credential (always available)
+			// No readWrite needed - API keys don't have read vs write distinction
 			await api.createCredential({
 				service: selectedProvider,
 				displayName: template?.name || selectedProvider,
 				type: 'api_key',
-				scopes: {
-					api: {
-						envVar: envVar,
-						permanent: true,
-						requiresApproval: false,
-						maxTTL: '',
-						token: apiKey.trim()
-					}
+				read: {
+					envVar: envVar.trim(),
+					token: apiKey.trim()
 				}
+				// No readWrite - LLM API keys are always full access
 			});
 			step = 3;
 		} catch (err) {
