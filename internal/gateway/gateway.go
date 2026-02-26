@@ -105,6 +105,34 @@ func (c *Client) WriteCredentialToEnv(name, value string) error {
 	return c.writeEnvFile(existing)
 }
 
+// WriteCredentialsToEnv writes multiple credentials to the .env file WITHOUT restarting.
+// Use this for startup sync where Gateway is expected to be starting/restarting anyway.
+// Returns true if any changes were made to the .env file.
+func (c *Client) WriteCredentialsToEnv(creds []CredentialEnv) (changed bool, err error) {
+	existing, err := c.readEnvFile()
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read env file: %w", err)
+	}
+
+	// Check if anything actually changed
+	for _, cred := range creds {
+		if existing[cred.Name] != cred.Value {
+			changed = true
+			existing[cred.Name] = cred.Value
+		}
+	}
+
+	if !changed {
+		return false, nil // Nothing to write
+	}
+
+	if err := c.writeEnvFile(existing); err != nil {
+		return true, fmt.Errorf("write env file: %w", err)
+	}
+
+	return true, nil
+}
+
 // SyncAndRestart syncs current credentials to the .env file and restarts Gateway.
 // This is used during setup to ensure all credentials are written before restart.
 func (c *Client) SyncAndRestart(reason string) error {

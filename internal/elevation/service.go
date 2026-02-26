@@ -162,7 +162,9 @@ func (s *Service) RevokeElevation(service, scope string, reason string) error {
 	return nil
 }
 
-// syncCredentialsToGateway syncs all read credentials to the Gateway on startup.
+// syncCredentialsToGateway syncs all read credentials to the Gateway .env file on startup.
+// This only writes to .env WITHOUT triggering a Gateway restart - we assume Gateway is
+// starting up at the same time and will read the .env file on its own startup.
 func (s *Service) syncCredentialsToGateway() {
 	creds, err := s.store.ListCredentials()
 	if err != nil {
@@ -186,10 +188,15 @@ func (s *Service) syncCredentialsToGateway() {
 	}
 
 	if len(envCreds) > 0 {
-		if err := s.gateway.SetCredentials(envCreds); err != nil {
+		// Use WriteCredentialsToEnv which doesn't trigger restart
+		// Gateway will pick up the .env on its own startup
+		changed, err := s.gateway.WriteCredentialsToEnv(envCreds)
+		if err != nil {
 			s.logger.Error("failed to sync credentials to gateway", "error", err)
+		} else if changed {
+			s.logger.Info("synced credentials to gateway .env", "count", len(envCreds))
 		} else {
-			s.logger.Info("synced permanent credentials to gateway", "count", len(envCreds))
+			s.logger.Debug("credentials already synced to gateway .env", "count", len(envCreds))
 		}
 	}
 }
