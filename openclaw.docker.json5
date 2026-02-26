@@ -1,6 +1,10 @@
 // OpenClaw config for Docker deployment with OCM
 // Mount this to /home/node/.openclaw/openclaw.json
 {
+  // Enable restart command for OCM credential sync
+  commands: {
+    restart: true,
+  },
   gateway: {
     controlUi: {
       enabled: true,
