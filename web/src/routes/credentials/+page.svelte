@@ -17,14 +17,14 @@
 
 	// Form state for template-based
 	let fieldValues: Record<string, string> = {};
-	let elevationMode: 'permanent' | 'approval' = 'permanent';
 	let defaultTTL = '1h';
 
 	// Form state for custom
 	let customService = '';
 	let customDisplayName = '';
 	let customEnvVar = '';
-	let customToken = '';
+	let customReadToken = '';
+	let customReadWriteToken = '';
 
 	onMount(async () => {
 		await loadCredentials();
@@ -75,7 +75,9 @@
 		customService = '';
 		customDisplayName = '';
 		customEnvVar = '';
-		customToken = '';
+		customReadToken = '';
+		customReadWriteToken = '';
+		defaultTTL = '1h';
 		saveError = '';
 	}
 
@@ -84,20 +86,13 @@
 		isCustom = false;
 		modalStep = 'configure';
 		fieldValues = {};
-		// Set default elevation based on template
-		if (template.elevationConfig?.readOnly) {
-			elevationMode = 'permanent';
-		} else {
-			elevationMode = 'approval';
-			defaultTTL = template.elevationConfig?.defaultTTL || '1h';
-		}
+		defaultTTL = template.elevationConfig?.defaultTTL || '1h';
 	}
 
 	function selectCustom() {
 		selectedTemplate = null;
 		isCustom = true;
 		modalStep = 'configure';
-		elevationMode = 'approval';
 		defaultTTL = '1h';
 	}
 
@@ -114,56 +109,71 @@
 		try {
 			if (isCustom) {
 				// Custom credential
-				if (!customService || !customDisplayName || !customEnvVar) {
-					saveError = 'Service ID, Display Name, and Env Var are required';
+				if (!customService || !customDisplayName || !customEnvVar || !customReadToken) {
+					saveError = 'Service ID, Display Name, Env Var, and Read Key are required';
 					return;
 				}
 
-				await api.createCredential({
+				const request: any = {
 					service: customService,
 					displayName: customDisplayName,
 					type: 'custom',
-					scopes: {
-						default: {
-							envVar: customEnvVar,
-							token: customToken,
-							permanent: elevationMode === 'permanent',
-							requiresApproval: elevationMode === 'approval',
-							maxTTL: defaultTTL
-						}
+					read: {
+						envVar: customEnvVar,
+						token: customReadToken
 					}
-				});
+				};
+
+				// Add readWrite only if provided
+				if (customReadWriteToken) {
+					request.readWrite = {
+						envVar: customEnvVar,  // Same env var
+						token: customReadWriteToken,
+						maxTTL: defaultTTL
+					};
+				}
+
+				await api.createCredential(request);
 			} else if (selectedTemplate) {
 				// Template-based credential
-				const missingFields = selectedTemplate.fields
-					.filter(f => f.required && !fieldValues[f.name])
-					.map(f => f.label);
-
-				if (missingFields.length > 0) {
-					saveError = `Required fields: ${missingFields.join(', ')}`;
+				// Templates may use various field names: token, apiKey, botToken, readToken, etc.
+				// Find the first required password field as the "read" token
+				const tokenFields = selectedTemplate.fields.filter(f => f.type === 'password');
+				const primaryTokenField = tokenFields.find(f => f.required) || tokenFields[0];
+				
+				if (!primaryTokenField || !fieldValues[primaryTokenField.name]) {
+					saveError = `${primaryTokenField?.label || 'Token'} is required`;
 					return;
 				}
 
-				// Build scopes from template fields
-				const scopes: Record<string, any> = {};
-				for (const field of selectedTemplate.fields) {
-					if (fieldValues[field.name]) {
-						scopes[field.name] = {
-							envVar: field.envVar,
-							token: fieldValues[field.name],
-							permanent: elevationMode === 'permanent',
-							requiresApproval: elevationMode === 'approval',
-							maxTTL: defaultTTL
-						};
-					}
-				}
+				// Use the primary token field's envVar
+				const envVar = primaryTokenField.envVar;
+				const readToken = fieldValues[primaryTokenField.name];
 
-				await api.createCredential({
+				// Check if there's an explicit readWriteToken field
+				const readWriteField = tokenFields.find(f => f.name === 'readWriteToken');
+				const readWriteToken = readWriteField ? fieldValues['readWriteToken'] : fieldValues['readWriteToken'];
+
+				const request: any = {
 					service: selectedTemplate.id,
 					displayName: selectedTemplate.name,
 					type: selectedTemplate.category,
-					scopes
-				});
+					read: {
+						envVar,
+						token: readToken
+					}
+				};
+
+				// Add readWrite if provided
+				if (readWriteToken) {
+					request.readWrite = {
+						envVar,
+						token: readWriteToken,
+						maxTTL: defaultTTL
+					};
+				}
+
+				await api.createCredential(request);
 			}
 
 			closeModal();
@@ -248,14 +258,25 @@
 							</td>
 							<td class="px-6 py-4">
 								<div class="flex flex-wrap gap-1">
-									{#each Object.entries(cred.scopes || {}) as [name, scope]}
-										<span class="px-2 py-0.5 text-xs rounded {scope.permanent ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
-											{scope.envVar || name}
-											{#if !scope.permanent}
-												⚡
-											{/if}
+									{#if cred.read}
+										<span class="px-2 py-0.5 text-xs rounded bg-green-100 text-green-700">
+											{cred.read.envVar} (read)
 										</span>
-									{/each}
+									{/if}
+									{#if cred.readWrite}
+										<span class="px-2 py-0.5 text-xs rounded bg-orange-100 text-orange-700">
+											{cred.readWrite.envVar} (write) ⚡
+										</span>
+									{/if}
+									{#if !cred.read && !cred.readWrite && cred.scopes}
+										<!-- Legacy display -->
+										{#each Object.entries(cred.scopes) as [name, scope]}
+											<span class="px-2 py-0.5 text-xs rounded {scope.permanent ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
+												{scope.envVar || name}
+												{#if !scope.permanent}⚡{/if}
+											</span>
+										{/each}
+									{/if}
 								</div>
 							</td>
 							<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -435,6 +456,51 @@
 								</div>
 							{/each}
 
+							<!-- Optional Read-Write Key for templates -->
+							{#if !selectedTemplate.elevationConfig?.readOnly}
+								<div class="border-t border-gray-200 pt-4 mt-4">
+									<h4 class="text-sm font-medium text-gray-700 mb-2">Elevated Access (optional)</h4>
+									<p class="text-xs text-gray-500 mb-3">
+										If you have a separate key with write permissions, add it here. It will require approval before use.
+									</p>
+									
+									<div>
+										<label class="block text-sm font-medium text-gray-700 mb-1" for="readWriteToken">
+											Read-Write Key <span class="text-gray-400 text-xs font-normal">(optional)</span>
+										</label>
+										<input
+											id="readWriteToken"
+											type="password"
+											bind:value={fieldValues['readWriteToken']}
+											placeholder="Full-access API key..."
+											class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+										/>
+										<p class="mt-1 text-xs text-gray-500">Replaces the read key when elevated (same env var)</p>
+									</div>
+
+									{#if fieldValues['readWriteToken']}
+										<div class="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+											<div class="flex items-center gap-2 mb-2">
+												<span class="text-amber-600">⚡</span>
+												<span class="text-sm font-medium text-amber-800">Elevation Settings</span>
+											</div>
+											<div class="flex items-center gap-3">
+												<label class="text-sm text-amber-700" for="templateTTL">Max elevation duration:</label>
+												<select id="templateTTL" bind:value={defaultTTL} class="text-sm border-amber-300 rounded bg-white">
+													<option value="15m">15 minutes</option>
+													<option value="30m">30 minutes</option>
+													<option value="1h">1 hour</option>
+													<option value="2h">2 hours</option>
+													<option value="4h">4 hours</option>
+													<option value="8h">8 hours</option>
+													<option value="24h">24 hours</option>
+												</select>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/if}
+
 						{:else if isCustom}
 							<!-- Custom form -->
 							<div class="grid grid-cols-2 gap-4">
@@ -478,54 +544,50 @@
 								<p class="mt-1 text-xs text-gray-500">The env var name that will be injected into the Gateway</p>
 							</div>
 
-							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1" for="customToken">
-									Token/Secret
-								</label>
-								<input
-									id="customToken"
-									type="password"
-									bind:value={customToken}
-									placeholder="Enter token or secret..."
-									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
-								/>
-							</div>
-						{/if}
-
-						<!-- Elevation Settings -->
-						<div class="border-t border-gray-200 pt-6">
-							<h3 class="text-sm font-medium text-gray-700 mb-3">Access Control</h3>
-							
-							<div class="space-y-3">
-								<label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
-									<input
-										type="radio"
-										name="elevationMode"
-										value="permanent"
-										bind:group={elevationMode}
-										class="mt-0.5"
-									/>
+							<div class="border-t border-gray-200 pt-4 mt-4">
+								<h4 class="text-sm font-medium text-gray-700 mb-3">Access Levels</h4>
+								<p class="text-xs text-gray-500 mb-4">
+									Provide a read-only key for normal access. Optionally add a read-write key that requires approval before use.
+								</p>
+								
+								<div class="space-y-4">
 									<div>
-										<div class="font-medium text-gray-900">Permanent Access</div>
-										<div class="text-sm text-gray-500">Agent can always use this credential (good for read-only APIs)</div>
+										<label class="block text-sm font-medium text-gray-700 mb-1" for="customReadToken">
+											Read Key <span class="text-red-500">*</span>
+										</label>
+										<input
+											id="customReadToken"
+											type="password"
+											bind:value={customReadToken}
+											placeholder="Read-only API key or token..."
+											class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+										/>
+										<p class="mt-1 text-xs text-gray-500">Always available to the agent (permanent access)</p>
 									</div>
-								</label>
 
-								<label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
-									<input
-										type="radio"
-										name="elevationMode"
-										value="approval"
-										bind:group={elevationMode}
-										class="mt-0.5"
-									/>
-									<div class="flex-1">
-										<div class="font-medium text-gray-900">Requires Approval</div>
-										<div class="text-sm text-gray-500">Agent must request access, you approve with a time limit</div>
-										{#if elevationMode === 'approval'}
-											<div class="mt-2">
-												<label class="text-xs text-gray-500" for="defaultTTL">Default TTL</label>
-												<select id="defaultTTL" bind:value={defaultTTL} class="ml-2 text-sm border-gray-300 rounded">
+									<div>
+										<label class="block text-sm font-medium text-gray-700 mb-1" for="customReadWriteToken">
+											Read-Write Key <span class="text-gray-400 text-xs font-normal">(optional)</span>
+										</label>
+										<input
+											id="customReadWriteToken"
+											type="password"
+											bind:value={customReadWriteToken}
+											placeholder="Full-access API key or token..."
+											class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500"
+										/>
+										<p class="mt-1 text-xs text-gray-500">Requires your approval before use. Swapped in for the same env var.</p>
+									</div>
+
+									{#if customReadWriteToken}
+										<div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+											<div class="flex items-center gap-2 mb-2">
+												<span class="text-amber-600">⚡</span>
+												<span class="text-sm font-medium text-amber-800">Elevation Settings</span>
+											</div>
+											<div class="flex items-center gap-3">
+												<label class="text-sm text-amber-700" for="defaultTTL">Max elevation duration:</label>
+												<select id="defaultTTL" bind:value={defaultTTL} class="text-sm border-amber-300 rounded bg-white">
 													<option value="15m">15 minutes</option>
 													<option value="30m">30 minutes</option>
 													<option value="1h">1 hour</option>
@@ -535,11 +597,12 @@
 													<option value="24h">24 hours</option>
 												</select>
 											</div>
-										{/if}
-									</div>
-								</label>
+										</div>
+									{/if}
+								</div>
 							</div>
-						</div>
+						{/if}
+
 					</div>
 				{/if}
 			</div>

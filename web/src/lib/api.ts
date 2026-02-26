@@ -7,9 +7,21 @@ export interface Credential {
 	service: string;
 	displayName: string;
 	type: string;
-	scopes: Record<string, Scope>;
+	// New model: read and optional readWrite access levels
+	read?: AccessLevel;
+	readWrite?: AccessLevel;
+	// Legacy (for backwards compat in display)
+	scopes?: Record<string, Scope>;
 	createdAt: string;
 	updatedAt: string;
+}
+
+export interface AccessLevel {
+	envVar: string;
+	token?: string;
+	refreshToken?: string;
+	expiresAt?: string;
+	maxTTL?: number; // Only for readWrite, in nanoseconds from Go
 }
 
 export interface Scope {
@@ -83,14 +95,17 @@ export interface CreateCredentialRequest {
 	service: string;
 	displayName: string;
 	type: string;
-	scopes: Record<string, {
+	read: {
 		envVar: string;
-		permanent: boolean;
-		requiresApproval: boolean;
-		maxTTL: string;
 		token: string;
 		refreshToken?: string;
-	}>;
+	};
+	readWrite?: {
+		envVar: string;  // Same as read.envVar
+		token: string;
+		refreshToken?: string;
+		maxTTL: string;  // e.g., "1h", "30m"
+	};
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
