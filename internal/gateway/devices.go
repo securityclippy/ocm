@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -524,6 +525,9 @@ func (c *RPCClient) GetDeviceID() string {
 	return ""
 }
 
+// ErrRestartDisabled is returned when Gateway restart is not enabled in OpenClaw config.
+var ErrRestartDisabled = fmt.Errorf("gateway restart disabled")
+
 // RestartGateway triggers an OpenClaw Gateway restart via RPC.
 // Requires `commands.restart: true` in OpenClaw config.
 // The reason is logged by the Gateway.
@@ -537,8 +541,17 @@ func (c *RPCClient) RestartGateway(reason string) error {
 	}
 	if resp.OK != nil && !*resp.OK {
 		errMsg := "unknown error"
+		errCode := ""
 		if resp.Error != nil {
 			errMsg = resp.Error.Message
+			errCode = resp.Error.Code
+		}
+		// Detect restart disabled error
+		if errCode == "INVALID_REQUEST" && (strings.Contains(errMsg, "unknown method") || strings.Contains(errMsg, "restart")) {
+			return ErrRestartDisabled
+		}
+		if strings.Contains(errMsg, "disabled") || strings.Contains(errMsg, "not enabled") {
+			return ErrRestartDisabled
 		}
 		return fmt.Errorf("RPC error: %s", errMsg)
 	}

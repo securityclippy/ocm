@@ -316,6 +316,7 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Sync read credentials to Gateway .env file and restart
+	var restartWarning string
 	if h.elevation != nil && h.elevation.Gateway() != nil {
 		if cred.Read != nil && cred.Read.EnvVar != "" && cred.Read.Token != "" {
 			if err := h.elevation.Gateway().WriteCredentialToEnv(cred.Read.EnvVar, cred.Read.Token); err != nil {
@@ -324,7 +325,9 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 			// Trigger Gateway restart to pick up new credential
 			if err := h.elevation.Gateway().RestartGateway("credential created: " + req.Service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
-				// Don't fail the request - credential is saved, just needs manual restart
+				if err == gateway.ErrRestartDisabled {
+					restartWarning = "Gateway restart is disabled. To enable automatic credential sync, add to your OpenClaw config:\n\n```json\n{\n  \"commands\": {\n    \"restart\": true\n  }\n}\n```\n\nThen restart OpenClaw to apply the config change."
+				}
 			}
 		}
 	}
@@ -340,6 +343,15 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 
 	h.logger.Info("credential created", "service", req.Service)
 	w.WriteHeader(http.StatusCreated)
+	
+	// Include warning in response if restart failed
+	if restartWarning != "" {
+		h.jsonResponse(w, map[string]interface{}{
+			"credential": cred,
+			"warning":    restartWarning,
+		})
+		return
+	}
 	h.jsonResponse(w, cred)
 }
 
@@ -416,6 +428,7 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Sync read credentials to Gateway .env file and restart
+	var restartWarning string
 	if h.elevation != nil && h.elevation.Gateway() != nil {
 		if existing.Read != nil && existing.Read.EnvVar != "" && existing.Read.Token != "" {
 			if err := h.elevation.Gateway().WriteCredentialToEnv(existing.Read.EnvVar, existing.Read.Token); err != nil {
@@ -424,6 +437,9 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 			// Trigger Gateway restart to pick up updated credential
 			if err := h.elevation.Gateway().RestartGateway("credential updated: " + service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
+				if err == gateway.ErrRestartDisabled {
+					restartWarning = "Gateway restart is disabled. To enable automatic credential sync, add to your OpenClaw config:\n\n```json\n{\n  \"commands\": {\n    \"restart\": true\n  }\n}\n```\n\nThen restart OpenClaw to apply the config change."
+				}
 			}
 		}
 	}
@@ -437,6 +453,14 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 		Actor:     "admin",
 	})
 
+	// Include warning in response if restart failed
+	if restartWarning != "" {
+		h.jsonResponse(w, map[string]interface{}{
+			"credential": existing,
+			"warning":    restartWarning,
+		})
+		return
+	}
 	h.jsonResponse(w, existing)
 }
 

@@ -6,6 +6,7 @@
 	let credentials: Credential[] = [];
 	let loading = true;
 	let error = '';
+	let configWarning = '';  // Warning about restart configuration
 	
 	// Modal state
 	let showAddModal = false;
@@ -133,7 +134,10 @@
 					};
 				}
 
-				await api.createCredential(request);
+				const result = await api.createCredential(request);
+				if (result?.warning) {
+					configWarning = result.warning;
+				}
 			} else if (selectedTemplate) {
 				// Template-based credential
 				// Templates may use various field names: token, apiKey, botToken, readToken, etc.
@@ -173,7 +177,10 @@
 					};
 				}
 
-				await api.createCredential(request);
+				const result = await api.createCredential(request);
+				if (result?.warning) {
+					configWarning = result.warning;
+				}
 			}
 
 			closeModal();
@@ -204,6 +211,24 @@
 			Add Credential
 		</button>
 	</div>
+
+	{#if configWarning}
+		<div class="card p-4 bg-amber-50 border-amber-200">
+			<div class="flex items-start gap-3">
+				<span class="text-amber-500 text-xl">⚠️</span>
+				<div class="flex-1">
+					<h3 class="font-medium text-amber-800">Configuration Required</h3>
+					<div class="mt-2 text-sm text-amber-700 whitespace-pre-wrap font-mono bg-amber-100 p-3 rounded">{configWarning}</div>
+					<button 
+						class="mt-3 text-sm text-amber-600 hover:text-amber-800 underline"
+						on:click={() => configWarning = ''}
+					>
+						Dismiss
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
