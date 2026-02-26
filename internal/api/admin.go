@@ -443,9 +443,37 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 func (h *adminHandler) deleteCredential(w http.ResponseWriter, r *http.Request) {
 	service := chi.URLParam(r, "service")
 
+	// Get credential first to know which env vars to clear
+	cred, err := h.store.GetCredential(service)
+	if err != nil {
+		h.jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Collect env vars to clear
+	var envVarsToClear []string
+	if cred != nil {
+		if cred.Read != nil && cred.Read.EnvVar != "" {
+			envVarsToClear = append(envVarsToClear, cred.Read.EnvVar)
+		}
+		if cred.ReadWrite != nil && cred.ReadWrite.EnvVar != "" && 
+		   (cred.Read == nil || cred.ReadWrite.EnvVar != cred.Read.EnvVar) {
+			envVarsToClear = append(envVarsToClear, cred.ReadWrite.EnvVar)
+		}
+	}
+
+	// Delete from database
 	if err := h.store.DeleteCredential(service); err != nil {
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Clear from .env and restart Gateway
+	if h.elevation != nil && h.elevation.Gateway() != nil && len(envVarsToClear) > 0 {
+		if err := h.elevation.Gateway().ClearCredentials(envVarsToClear); err != nil {
+			h.logger.Error("failed to clear credentials from env", "error", err, "envVars", envVarsToClear)
+			// Don't fail - credential is deleted from DB, env cleanup is best-effort
+		}
 	}
 
 	// Audit log
@@ -457,6 +485,7 @@ func (h *adminHandler) deleteCredential(w http.ResponseWriter, r *http.Request) 
 		Actor:     "admin",
 	})
 
+	h.logger.Info("credential deleted", "service", service, "clearedEnvVars", envVarsToClear)
 	w.WriteHeader(http.StatusNoContent)
 }
 
