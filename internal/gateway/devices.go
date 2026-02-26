@@ -528,10 +528,46 @@ func (c *RPCClient) GetDeviceID() string {
 // ErrRestartDisabled is returned when Gateway restart is not enabled in OpenClaw config.
 var ErrRestartDisabled = fmt.Errorf("gateway restart disabled")
 
+// ErrRateLimited is returned when config.patch is rate limited.
+// The RetryAfter field indicates how long to wait before retrying.
+type ErrRateLimited struct {
+	RetryAfter time.Duration
+}
+
+func (e *ErrRateLimited) Error() string {
+	return fmt.Sprintf("rate limited; retry after %v", e.RetryAfter)
+}
+
+// parseRateLimitError checks if an error message indicates rate limiting
+// and extracts the retry-after duration if present.
+// Format: "rate limit exceeded for config.patch; retry after 59s"
+func parseRateLimitError(errMsg string) *ErrRateLimited {
+	if !strings.Contains(errMsg, "rate limit") {
+		return nil
+	}
+	
+	// Try to extract "retry after Ns" pattern
+	idx := strings.Index(errMsg, "retry after ")
+	if idx == -1 {
+		return &ErrRateLimited{RetryAfter: 60 * time.Second} // Default 60s
+	}
+	
+	afterPart := errMsg[idx+len("retry after "):]
+	// Parse number followed by 's'
+	var seconds int
+	_, err := fmt.Sscanf(afterPart, "%ds", &seconds)
+	if err != nil || seconds <= 0 {
+		return &ErrRateLimited{RetryAfter: 60 * time.Second}
+	}
+	
+	return &ErrRateLimited{RetryAfter: time.Duration(seconds) * time.Second}
+}
+
 // RestartGateway triggers an OpenClaw Gateway restart via RPC.
 // Uses config.patch with a no-op patch to trigger restart.
 // The reason/note is logged by the Gateway.
 // Includes retry logic for transient EBUSY errors on WSL2/Windows.
+// Returns ErrRateLimited if rate limited (caller can wait and retry).
 func (c *RPCClient) RestartGateway(reason string) error {
 	const maxRetries = 5
 	var lastErr error
@@ -548,8 +584,14 @@ func (c *RPCClient) RestartGateway(reason string) error {
 			return nil
 		}
 		
-		// Check if it's a retryable EBUSY error
 		errStr := err.Error()
+		
+		// Check for rate limiting - don't retry, return to caller
+		if rl := parseRateLimitError(errStr); rl != nil {
+			return rl
+		}
+		
+		// Check if it's a retryable EBUSY error
 		if strings.Contains(errStr, "EBUSY") || strings.Contains(errStr, "resource busy") {
 			lastErr = err
 			continue // Retry

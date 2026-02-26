@@ -325,8 +325,13 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 			// Trigger Gateway restart to pick up new credential
 			if err := h.elevation.Gateway().RestartGateway("credential created: " + req.Service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
-				if err == gateway.ErrRestartDisabled {
-					restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+				switch e := err.(type) {
+				case *gateway.ErrRateLimited:
+					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
+				default:
+					if err == gateway.ErrRestartDisabled {
+						restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+					}
 				}
 			}
 		}
@@ -437,8 +442,13 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 			// Trigger Gateway restart to pick up updated credential
 			if err := h.elevation.Gateway().RestartGateway("credential updated: " + service); err != nil {
 				h.logger.Error("failed to restart gateway", "error", err)
-				if err == gateway.ErrRestartDisabled {
-					restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+				switch e := err.(type) {
+				case *gateway.ErrRateLimited:
+					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
+				default:
+					if err == gateway.ErrRestartDisabled {
+						restartWarning = "Gateway restart failed. The credential was saved but OpenClaw needs to be restarted manually to pick up the new credential.\n\nRestart with: docker compose restart openclaw"
+					}
 				}
 			}
 		}
