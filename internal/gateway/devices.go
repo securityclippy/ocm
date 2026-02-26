@@ -3,10 +3,17 @@
 package gateway
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,10 +67,18 @@ type connectChallenge struct {
 	Ts    int64  `json:"ts"`
 }
 
+// deviceIdentity holds the Ed25519 keypair for device auth.
+type deviceIdentity struct {
+	PrivateKey ed25519.PrivateKey
+	PublicKey  ed25519.PublicKey
+	DeviceID   string // SHA256 fingerprint of public key
+}
+
 // RPCClient is a WebSocket RPC client for OpenClaw Gateway.
 type RPCClient struct {
 	gatewayURL string
 	token      string
+	identity   *deviceIdentity
 	conn       *websocket.Conn
 	mu         sync.Mutex
 	nextID     uint64
@@ -75,11 +90,84 @@ type RPCClient struct {
 
 // NewRPCClient creates a new RPC client.
 func NewRPCClient(gatewayURL, token string) *RPCClient {
+	identity, err := loadOrCreateIdentity()
+	if err != nil {
+		// Log but continue - will fail on connect if identity is required
+		fmt.Fprintf(os.Stderr, "warning: failed to load device identity: %v\n", err)
+	}
+
 	return &RPCClient{
 		gatewayURL: gatewayURL,
 		token:      token,
+		identity:   identity,
 		pending:    make(map[string]chan *rpcMessage),
 	}
+}
+
+// loadOrCreateIdentity loads or creates an Ed25519 keypair for device identity.
+func loadOrCreateIdentity() (*deviceIdentity, error) {
+	// Store identity in /data (mounted volume) or fallback to temp
+	keyPath := "/data/ocm-device.key"
+	if _, err := os.Stat("/data"); os.IsNotExist(err) {
+		keyPath = filepath.Join(os.TempDir(), "ocm-device.key")
+	}
+
+	// Try to load existing key
+	if data, err := os.ReadFile(keyPath); err == nil && len(data) == ed25519.SeedSize {
+		privateKey := ed25519.NewKeyFromSeed(data)
+		publicKey := privateKey.Public().(ed25519.PublicKey)
+		deviceID := computeDeviceID(publicKey)
+		return &deviceIdentity{
+			PrivateKey: privateKey,
+			PublicKey:  publicKey,
+			DeviceID:   deviceID,
+		}, nil
+	}
+
+	// Generate new keypair
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate keypair: %w", err)
+	}
+
+	// Save seed for persistence
+	seed := privateKey.Seed()
+	if err := os.WriteFile(keyPath, seed, 0600); err != nil {
+		// Non-fatal - just won't persist across restarts
+		fmt.Fprintf(os.Stderr, "warning: failed to save device identity: %v\n", err)
+	}
+
+	deviceID := computeDeviceID(publicKey)
+	return &deviceIdentity{
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
+		DeviceID:   deviceID,
+	}, nil
+}
+
+// computeDeviceID returns the SHA256 fingerprint of the public key.
+func computeDeviceID(publicKey ed25519.PublicKey) string {
+	hash := sha256.Sum256(publicKey)
+	return hex.EncodeToString(hash[:16]) // First 16 bytes = 32 hex chars
+}
+
+// signPayload signs a payload for device auth.
+func (id *deviceIdentity) signPayload(payload string) string {
+	signature := ed25519.Sign(id.PrivateKey, []byte(payload))
+	return base64.StdEncoding.EncodeToString(signature)
+}
+
+// buildAuthPayload builds the payload to sign for device auth.
+// Format: clientId:clientMode:role:scopes:signedAt:token:nonce
+func buildAuthPayload(clientID, clientMode, role string, scopes []string, signedAt int64, token, nonce string) string {
+	scopesStr := ""
+	for i, s := range scopes {
+		if i > 0 {
+			scopesStr += ","
+		}
+		scopesStr += s
+	}
+	return fmt.Sprintf("%s:%s:%s:%s:%d:%s:%s", clientID, clientMode, role, scopesStr, signedAt, token, nonce)
 }
 
 // Connect establishes the WebSocket connection following OpenClaw protocol.
@@ -128,31 +216,63 @@ func (c *RPCClient) Connect() error {
 		return fmt.Errorf("expected connect.challenge event, got type=%s event=%s", challengeMsg.Type, challengeMsg.Event)
 	}
 
-	// Send connect request with proper protocol structure
-	// Valid client IDs: cli, gateway-client, webchat, etc.
-	// Valid modes: cli, backend, ui, node, etc.
-	// operator.admin scope bypasses all other scope checks
+	// Extract nonce from challenge
+	var challenge connectChallenge
+	if payload, ok := challengeMsg.Payload.(map[string]interface{}); ok {
+		if nonce, ok := payload["nonce"].(string); ok {
+			challenge.Nonce = nonce
+		}
+	}
+
+	// Build connect params
+	clientID := "cli"
+	clientMode := "cli"
+	role := "operator"
+	scopes := []string{"operator.admin"}
+	signedAt := time.Now().UnixMilli()
+
+	connectParams := map[string]interface{}{
+		"minProtocol": 3,
+		"maxProtocol": 3,
+		"client": map[string]interface{}{
+			"id":       clientID,
+			"version":  "0.1.0",
+			"platform": "linux",
+			"mode":     clientMode,
+		},
+		"role":      role,
+		"scopes":    scopes,
+		"caps":      []string{},
+		"userAgent": "ocm/0.1.0",
+	}
+
+	// Add auth
+	if c.token != "" {
+		connectParams["auth"] = map[string]string{
+			"token": c.token,
+		}
+	}
+
+	// Add device identity if available
+	if c.identity != nil {
+		payload := buildAuthPayload(clientID, clientMode, role, scopes, signedAt, c.token, challenge.Nonce)
+		signature := c.identity.signPayload(payload)
+
+		connectParams["device"] = map[string]interface{}{
+			"id":        c.identity.DeviceID,
+			"publicKey": base64.StdEncoding.EncodeToString(c.identity.PublicKey),
+			"signature": signature,
+			"signedAt":  signedAt,
+			"nonce":     challenge.Nonce,
+		}
+	}
+
+	// Send connect request
 	connectReq := rpcMessage{
 		Type:   "req",
 		ID:     "1",
 		Method: "connect",
-		Params: map[string]interface{}{
-			"minProtocol": 3,
-			"maxProtocol": 3,
-			"client": map[string]interface{}{
-				"id":       "cli",
-				"version":  "0.1.0",
-				"platform": "linux",
-				"mode":     "cli",
-			},
-			"role":   "operator",
-			"scopes": []string{"operator.admin"},
-			"caps":   []string{},
-			"auth": map[string]string{
-				"token": c.token,
-			},
-			"userAgent": "ocm/0.1.0",
-		},
+		Params: connectParams,
 	}
 
 	if err := conn.WriteJSON(connectReq); err != nil {
@@ -340,4 +460,12 @@ func (c *RPCClient) RejectDevice(requestID string) error {
 		return fmt.Errorf("RPC error: %s", errMsg)
 	}
 	return nil
+}
+
+// GetDeviceID returns OCM's device ID for pairing approval.
+func (c *RPCClient) GetDeviceID() string {
+	if c.identity != nil {
+		return c.identity.DeviceID
+	}
+	return ""
 }
