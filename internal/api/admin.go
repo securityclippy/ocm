@@ -194,10 +194,10 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		if gwStatus.PairingNeeded {
 			// Provide exact command to approve
 			if reqID := h.rpc.GetPendingRequestID(); reqID != "" {
-				gwStatus.ApproveCommand = fmt.Sprintf("docker exec -it openclaw openclaw devices approve %s", reqID)
+				gwStatus.ApproveCommand = fmt.Sprintf("docker exec -it openclaw node /app/dist/index.js devices approve %s", reqID)
 			} else {
 				// Don't know the request ID yet, show list command first
-				gwStatus.ApproveCommand = fmt.Sprintf("docker exec -it openclaw openclaw devices list\n# Then: docker exec -it openclaw openclaw devices approve <requestId>")
+				gwStatus.ApproveCommand = "docker exec -it openclaw node /app/dist/index.js devices list\n# Then: docker exec -it openclaw node /app/dist/index.js devices approve <requestId>"
 			}
 		}
 		
