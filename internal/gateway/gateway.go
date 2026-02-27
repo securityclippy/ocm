@@ -95,6 +95,8 @@ func (c *Client) ClearCredentials(names []string) error {
 // WriteCredentialToEnv writes a single credential to the .env file without restarting.
 // Use this during setup to accumulate credentials, then call SyncAndRestart when done.
 func (c *Client) WriteCredentialToEnv(name, value string) error {
+	c.logger.Info("writing credential to env file", "envVar", name, "path", c.EnvFilePath)
+	
 	existing, err := c.readEnvFile()
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read env file: %w", err)
@@ -102,7 +104,13 @@ func (c *Client) WriteCredentialToEnv(name, value string) error {
 
 	existing[name] = value
 
-	return c.writeEnvFile(existing)
+	if err := c.writeEnvFile(existing); err != nil {
+		c.logger.Error("failed to write env file", "error", err)
+		return err
+	}
+	
+	c.logger.Info("credential written to env file", "envVar", name, "totalVars", len(existing))
+	return nil
 }
 
 // WriteCredentialsToEnv writes multiple credentials to the .env file WITHOUT restarting.
@@ -193,6 +201,7 @@ func (c *Client) writeEnvFile(env map[string]string) error {
 	// Ensure directory exists
 	dir := filepath.Dir(c.EnvFilePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
+		c.logger.Error("failed to create env file directory", "dir", dir, "error", err)
 		return err
 	}
 
@@ -210,5 +219,11 @@ func (c *Client) writeEnvFile(env map[string]string) error {
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(c.EnvFilePath, []byte(content), 0600)
+	if err := os.WriteFile(c.EnvFilePath, []byte(content), 0600); err != nil {
+		c.logger.Error("failed to write env file", "path", c.EnvFilePath, "error", err)
+		return err
+	}
+	
+	c.logger.Debug("env file written", "path", c.EnvFilePath, "bytes", len(content))
+	return nil
 }
