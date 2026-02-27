@@ -219,7 +219,9 @@ func (c *Client) writeEnvFile(env map[string]string) error {
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(c.EnvFilePath, []byte(content), 0600); err != nil {
+	// Use 0644 so OpenClaw (running as node user) can read the file
+	// OCM runs as root, but OpenClaw runs as node (uid 1000)
+	if err := os.WriteFile(c.EnvFilePath, []byte(content), 0644); err != nil {
 		c.logger.Error("failed to write env file", "path", c.EnvFilePath, "error", err)
 		return err
 	}
