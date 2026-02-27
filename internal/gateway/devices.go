@@ -82,10 +82,11 @@ type RPCClient struct {
 	token            string
 	identity         *deviceIdentity
 	conn             *websocket.Conn
-	mu               sync.Mutex
+	mu               sync.Mutex   // Protects conn, nextID
 	nextID           uint64
 	pending          map[string]chan *rpcMessage
 	pendingMu        sync.Mutex
+	statusMu         sync.RWMutex // Protects status fields (separate to avoid blocking on Connect)
 	connected        bool
 	needsPairing     bool   // True if last connect failed due to pairing requirement
 	pendingRequestID string // Request ID for pending pairing, if known
@@ -120,7 +121,7 @@ func (c *RPCClient) autoConnect() {
 	pairingInstructionsShown := false
 
 	for i := 0; i < maxRetries; i++ {
-		if c.connected {
+		if c.IsConnected() {
 			fmt.Fprintf(os.Stderr, "INFO: gateway RPC connected successfully\n")
 			return
 		}
@@ -242,12 +243,16 @@ func buildAuthPayload(deviceID, clientID, clientMode, role string, scopes []stri
 
 // Connect establishes the WebSocket connection following OpenClaw protocol.
 func (c *RPCClient) Connect() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	// Quick check if already connected (don't block on mu)
+	c.statusMu.RLock()
 	if c.connected {
+		c.statusMu.RUnlock()
 		return nil
 	}
+	c.statusMu.RUnlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// Convert HTTP URL to WebSocket URL
 	u, err := url.Parse(c.gatewayURL)
@@ -386,7 +391,7 @@ func (c *RPCClient) Connect() error {
 		
 		// Track pairing status for UI
 		if strings.Contains(errMsg, "pairing required") {
-			c.mu.Lock()
+			c.statusMu.Lock()
 			c.needsPairing = true
 			// Try to extract requestId from error details if available
 			if helloMsg.Error != nil {
@@ -396,19 +401,18 @@ func (c *RPCClient) Connect() error {
 					}
 				}
 			}
-			c.mu.Unlock()
+			c.statusMu.Unlock()
 		}
 		
 		return fmt.Errorf("connect rejected: %s", errMsg)
 	}
 
-	// Clear pairing flag on successful connect
-	c.mu.Lock()
+	// Clear pairing flag and set connected on success
+	c.statusMu.Lock()
 	c.needsPairing = false
 	c.pendingRequestID = ""
-	c.mu.Unlock()
-	
 	c.connected = true
+	c.statusMu.Unlock()
 	c.nextID = 1 // Start from 2 for subsequent calls (1 used for connect)
 
 	// Start reading responses
@@ -423,7 +427,9 @@ func (c *RPCClient) Close() error {
 	defer c.mu.Unlock()
 
 	if c.conn != nil {
+		c.statusMu.Lock()
 		c.connected = false
+		c.statusMu.Unlock()
 		err := c.conn.Close()
 		if c.readDone != nil {
 			<-c.readDone // Wait for read loop to exit
@@ -440,9 +446,9 @@ func (c *RPCClient) readLoop() {
 		var msg rpcMessage
 		err := c.conn.ReadJSON(&msg)
 		if err != nil {
-			c.mu.Lock()
+			c.statusMu.Lock()
 			c.connected = false
-			c.mu.Unlock()
+			c.statusMu.Unlock()
 			return
 		}
 
@@ -461,7 +467,11 @@ func (c *RPCClient) readLoop() {
 
 // call makes an RPC call and waits for response.
 func (c *RPCClient) call(method string, params interface{}) (*rpcMessage, error) {
-	if !c.connected {
+	c.statusMu.RLock()
+	connected := c.connected
+	c.statusMu.RUnlock()
+	
+	if !connected {
 		if err := c.Connect(); err != nil {
 			return nil, err
 		}
@@ -577,22 +587,22 @@ func (c *RPCClient) GetDeviceID() string {
 
 // IsConnected returns whether the RPC client is connected to Gateway.
 func (c *RPCClient) IsConnected() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
 	return c.connected
 }
 
 // NeedsPairing returns true if the last connection attempt failed due to pairing requirement.
 func (c *RPCClient) NeedsPairing() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
 	return c.needsPairing
 }
 
 // GetPendingRequestID returns the request ID for the pending pairing request, if known.
 func (c *RPCClient) GetPendingRequestID() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
 	return c.pendingRequestID
 }
 

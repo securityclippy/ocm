@@ -65,10 +65,18 @@ export interface DashboardData {
 	pending: Elevation[];
 }
 
+export interface GatewayStatusInfo {
+	connected: boolean;
+	pairingNeeded: boolean;
+	deviceId?: string;
+	approveCommand?: string;
+}
+
 export interface SetupStatus {
 	setupComplete: boolean;
 	missingKeys: string[];
 	configuredKeys: string[];
+	gatewayStatus?: GatewayStatusInfo;
 }
 
 export interface PendingDevice {
