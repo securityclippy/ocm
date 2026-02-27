@@ -19,11 +19,19 @@ RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o ocm .
 # Runtime stage
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates sqlite-libs
+
+# Create non-root user matching OpenClaw's node user (uid 1000)
+# This ensures files created by OCM are readable by OpenClaw
+RUN addgroup -g 1000 ocm && adduser -u 1000 -G ocm -s /bin/sh -D ocm
+
 WORKDIR /app
 COPY --from=backend /app/ocm .
 
-# Create directories
-RUN mkdir -p /data /root/.ocm
+# Create directories with correct ownership
+RUN mkdir -p /data && chown -R ocm:ocm /data
+
+# Switch to non-root user
+USER ocm
 
 EXPOSE 8080 9999
 
