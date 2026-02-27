@@ -1,114 +1,252 @@
 #!/bin/bash
-# OCM Quick Setup Script
-# Usage: ./scripts/setup.sh
+# OCM Setup Script
+# Creates secure configuration for OCM + OpenClaw
+#
+# Usage: ./scripts/setup.sh [--force]
+#
+# Security:
+# - Generates cryptographically secure keys
+# - Sets restrictive file permissions (600)
+# - Never echoes secrets to terminal
+# - Validates all inputs
 
 set -e
 
-echo "🔧 OCM Setup"
-echo "============"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
 
-# Set default paths (following OpenClaw's pattern)
-OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
-OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Create directories with user ownership
-echo "📁 Creating directories..."
-mkdir -p "$OPENCLAW_CONFIG_DIR"
-mkdir -p "$OPENCLAW_WORKSPACE_DIR"
-echo "   Config: $OPENCLAW_CONFIG_DIR"
-echo "   Workspace: $OPENCLAW_WORKSPACE_DIR"
+info() { echo -e "${BLUE}ℹ${NC}  $1"; }
+success() { echo -e "${GREEN}✓${NC}  $1"; }
+warn() { echo -e "${YELLOW}⚠${NC}  $1"; }
+error() { echo -e "${RED}✗${NC}  $1" >&2; }
 
-# Check for .env
-if [ ! -f .env ]; then
-    echo "📄 Creating .env from template..."
-    cp .env.example .env
-    
-    # Generate master key
-    echo "🔑 Generating OCM master key..."
-    MASTER_KEY=$(openssl rand -hex 32)
-    
-    # Generate gateway token
-    echo "🔑 Generating OpenClaw gateway token..."
-    GATEWAY_TOKEN=$(openssl rand -hex 32)
-    
-    # Update .env with the keys
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
-        sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
-    else
-        sed -i "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
-        sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
+# ===========================================
+# Pre-flight checks
+# ===========================================
+
+preflight_checks() {
+    local failed=0
+
+    # Check openssl
+    if ! command -v openssl &>/dev/null; then
+        error "openssl not found (required for key generation)"
+        failed=1
     fi
-    
-    # Add paths to .env
-    echo "OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR" >> .env
-    echo "OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR" >> .env
-    
-    echo "✅ Generated keys and saved to .env"
-else
-    echo "📄 .env already exists"
-    
-    # Check if keys need to be generated
-    NEEDS_UPDATE=false
-    
-    if grep -q "^OCM_MASTER_KEY=$" .env 2>/dev/null; then
-        echo "🔑 Generating OCM master key..."
-        MASTER_KEY=$(openssl rand -hex 32)
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
-        else
-            sed -i "s/^OCM_MASTER_KEY=.*/OCM_MASTER_KEY=$MASTER_KEY/" .env
+
+    # Check docker (warning only)
+    if ! command -v docker &>/dev/null; then
+        warn "docker not found - you'll need it to run the stack"
+    fi
+
+    # Check docker compose
+    if ! docker compose version &>/dev/null 2>&1; then
+        warn "docker compose not found - you'll need it to run the stack"
+    fi
+
+    # Warn if running as root
+    if [ "$EUID" -eq 0 ]; then
+        warn "Running as root is not recommended"
+        warn "Containers should run as non-root user"
+        echo ""
+        read -p "Continue anyway? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
         fi
-        NEEDS_UPDATE=true
     fi
+
+    if [ $failed -eq 1 ]; then
+        exit 1
+    fi
+}
+
+# ===========================================
+# Detect existing OpenClaw installation
+# ===========================================
+
+detect_openclaw() {
+    local default_config="$HOME/.openclaw"
     
-    if grep -q "^OPENCLAW_GATEWAY_TOKEN=your-gateway-token-here" .env 2>/dev/null || grep -q "^OPENCLAW_GATEWAY_TOKEN=$" .env 2>/dev/null; then
-        echo "🔑 Generating OpenClaw gateway token..."
-        GATEWAY_TOKEN=$(openssl rand -hex 32)
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
-        else
-            sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$GATEWAY_TOKEN/" .env
+    # Check common locations
+    if [ -d "$default_config" ]; then
+        if [ -f "$default_config/openclaw.json" ] || [ -f "$default_config/openclaw.json5" ]; then
+            echo "$default_config"
+            return 0
         fi
-        NEEDS_UPDATE=true
     fi
     
-    if [ "$NEEDS_UPDATE" = true ]; then
-        echo "✅ Updated .env with generated keys"
-    else
-        echo "✅ All keys already configured"
+    # Check if there's an existing OpenClaw container
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^openclaw$"; then
+        # Try to get the config path from container
+        local config_path
+        config_path=$(docker inspect openclaw --format '{{range .Mounts}}{{if eq .Destination "/home/node/.openclaw"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)
+        if [ -n "$config_path" ] && [ -d "$config_path" ]; then
+            echo "$config_path"
+            return 0
+        fi
     fi
-fi
+    
+    echo ""
+    return 1
+}
 
-# Always ensure paths are in .env (might be missing from older setup)
-if ! grep -q "^OPENCLAW_CONFIG_DIR=" .env 2>/dev/null; then
-    echo "📁 Adding config path to .env..."
-    echo "OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR" >> .env
-fi
-if ! grep -q "^OPENCLAW_WORKSPACE_DIR=" .env 2>/dev/null; then
-    echo "📁 Adding workspace path to .env..."
-    echo "OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR" >> .env
-fi
+# ===========================================
+# Generate secure key
+# ===========================================
 
-# Update paths if they're empty
-if grep -q "^OPENCLAW_CONFIG_DIR=$" .env 2>/dev/null; then
-    echo "📁 Setting config path..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|^OPENCLAW_CONFIG_DIR=.*|OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR|" .env
-    else
-        sed -i "s|^OPENCLAW_CONFIG_DIR=.*|OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR|" .env
+generate_key() {
+    openssl rand -hex 32
+}
+
+# ===========================================
+# Main setup
+# ===========================================
+
+main() {
+    echo ""
+    echo -e "${BLUE}🔐 OCM Setup${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    preflight_checks
+
+    local force=0
+    if [ "$1" = "--force" ]; then
+        force=1
     fi
-fi
-if grep -q "^OPENCLAW_WORKSPACE_DIR=$" .env 2>/dev/null; then
-    echo "📁 Setting workspace path..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|^OPENCLAW_WORKSPACE_DIR=.*|OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR|" .env
-    else
-        sed -i "s|^OPENCLAW_WORKSPACE_DIR=.*|OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR|" .env
-    fi
-fi
 
-echo ""
-echo "📦 Next steps:"
-echo "   1. Run: ./scripts/dev.sh      # Local development"
-echo "   2. Or:  ./scripts/docker.sh   # Docker setup"
+    # Check for existing .env
+    if [ -f .env ] && [ $force -eq 0 ]; then
+        info "Found existing .env file"
+        echo ""
+        read -p "   Overwrite? (secrets will be regenerated) [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo ""
+            info "Keeping existing configuration"
+            info "Run with --force to overwrite"
+            exit 0
+        fi
+        echo ""
+    fi
+
+    # Detect or prompt for paths
+    local detected_path
+    detected_path=$(detect_openclaw)
+    
+    if [ -n "$detected_path" ]; then
+        info "Detected existing OpenClaw config: $detected_path"
+        OPENCLAW_CONFIG_DIR="$detected_path"
+    else
+        OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+        info "Using default config path: $OPENCLAW_CONFIG_DIR"
+    fi
+    
+    OPENCLAW_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$OPENCLAW_CONFIG_DIR/workspace}"
+
+    # Create directories with correct permissions
+    echo ""
+    info "Creating directories..."
+    mkdir -p "$OPENCLAW_CONFIG_DIR"
+    mkdir -p "$OPENCLAW_WORKSPACE_DIR"
+    chmod 700 "$OPENCLAW_CONFIG_DIR"
+    success "Config directory: $OPENCLAW_CONFIG_DIR"
+    success "Workspace directory: $OPENCLAW_WORKSPACE_DIR"
+
+    # Generate secrets
+    echo ""
+    info "Generating secure keys..."
+    local master_key gateway_token
+    master_key=$(generate_key)
+    gateway_token=$(generate_key)
+    success "Master key generated (256-bit AES)"
+    success "Gateway token generated"
+
+    # Write .env with restricted permissions
+    echo ""
+    info "Writing configuration..."
+    
+    # Create with restrictive permissions from the start
+    umask 077
+    cat > .env << EOF
+# OCM + OpenClaw Configuration
+# Generated by setup.sh on $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+#
+# ⚠️  SECURITY: This file contains secrets. Keep it safe.
+#     - Do not commit to version control
+#     - Do not share or expose publicly
+#     - Permissions should be 600 (owner read/write only)
+
+# ===========================================
+# Secrets (auto-generated)
+# ===========================================
+
+# OCM master encryption key - encrypts all stored credentials
+# If lost, stored credentials cannot be recovered
+OCM_MASTER_KEY=$master_key
+
+# OpenClaw Gateway authentication token
+OPENCLAW_GATEWAY_TOKEN=$gateway_token
+
+# ===========================================
+# Paths
+# ===========================================
+
+# Host directory containing OpenClaw config
+OPENCLAW_CONFIG_DIR=$OPENCLAW_CONFIG_DIR
+
+# Host directory for agent workspace
+OPENCLAW_WORKSPACE_DIR=$OPENCLAW_WORKSPACE_DIR
+
+# ===========================================
+# Optional: Ports (uncomment to customize)
+# ===========================================
+
+# OPENCLAW_GATEWAY_PORT=18789
+# OCM_ADMIN_PORT=8080
+
+# ===========================================
+# Optional: Custom OpenClaw image
+# ===========================================
+
+# OPENCLAW_IMAGE=openclaw:local
+EOF
+
+    chmod 600 .env
+    success "Configuration saved to .env (mode 600)"
+
+    # Backup reminder
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}⚠️  IMPORTANT: Back up your .env file!${NC}"
+    echo -e "${YELLOW}   The master key encrypts all credentials.${NC}"
+    echo -e "${YELLOW}   If lost, stored credentials cannot be recovered.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Next steps
+    echo ""
+    echo -e "${GREEN}✅ Setup complete!${NC}"
+    echo ""
+    echo "Next steps:"
+    echo ""
+    echo "  ${BLUE}Quick start (builds everything):${NC}"
+    echo "    ./scripts/quickstart.sh"
+    echo ""
+    echo "  ${BLUE}Or step by step:${NC}"
+    echo "    1. Build OpenClaw:  ./scripts/build-openclaw.sh"
+    echo "    2. Start stack:     ./scripts/docker.sh"
+    echo ""
+    echo "  ${BLUE}For local development:${NC}"
+    echo "    ./scripts/dev.sh"
+    echo ""
+}
+
+main "$@"

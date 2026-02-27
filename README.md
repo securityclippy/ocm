@@ -2,14 +2,39 @@
 
 A secure credential management sidecar for OpenClaw instances.
 
-## Overview
+## Quick Start
 
-OCM solves a fundamental security problem with AI agents: **credentials in the agent's environment can be compromised**. By moving credential management to a separate service with just-in-time elevation:
+```bash
+git clone https://github.com/openclaw/ocm.git
+cd ocm
+./scripts/quickstart.sh
+```
+
+That's it. This will:
+1. Generate secure encryption keys
+2. Build the OpenClaw image (if needed)
+3. Build OCM
+4. Start the full stack
+
+**URLs after startup:**
+- 🔐 **OCM Admin UI:** http://localhost:8080
+- 🌐 **OpenClaw Gateway:** http://localhost:18789
+
+### What's Next?
+
+1. Open the **OCM Admin UI** to add your first credential
+2. Connect to the **OpenClaw Gateway** from the web UI or your preferred client
+3. Your agent can now use credentials without ever seeing them!
+
+---
+
+## Why OCM?
+
+AI agents with credential access can be manipulated to misuse or exfiltrate them. **Rules aren't security boundaries.** OCM solves this by:
 
 - **True isolation** — Agent can't access what it doesn't have
 - **Human oversight** — Sensitive operations require explicit approval
 - **Time-limited access** — Credentials auto-expire after approval
-- **Visibility** — Dashboard shows all credentials and active elevations
 - **Audit trail** — Full log of what was accessed, when, and by whom
 
 ## Architecture
@@ -30,63 +55,25 @@ OCM solves a fundamental security problem with AI agents: **credentials in the a
          └──────── restarts Gateway ────────┘
 ```
 
-## Quick Start
+## Alternative Setup Methods
 
-### One-Command Setup
+### Docker - OCM Only (without OpenClaw)
 
-```bash
-# OCM standalone (no OpenClaw dependency)
-./scripts/quickstart.sh docker-ocm
-
-# OCM + OpenClaw (requires building OpenClaw image first)
-./scripts/quickstart.sh docker
-
-# Local development (requires Go + Node)
-./scripts/quickstart.sh local
-```
-
-### Option 1: Docker - OCM Only (Easiest)
+If you already have OpenClaw running elsewhere:
 
 ```bash
+./scripts/setup.sh
 ./scripts/docker.sh ocm-only
 
 # Admin UI: http://localhost:8080
 ```
 
-### Option 2: Docker - OCM + OpenClaw
-
-```bash
-./scripts/docker.sh
-
-# If openclaw:local image doesn't exist, you'll be prompted:
-#   "Build it now? (will clone and build from GitHub) [Y/n]"
-# 
-# Say yes - it clones OpenClaw to a temp dir, builds the image, cleans up.
-
-# Admin UI: http://localhost:8080
-# Gateway:  http://localhost:18789
-```
-
-Or build the OpenClaw image separately:
-```bash
-./scripts/build-openclaw.sh
-./scripts/docker.sh
-```
-
-### Option 3: Local Development
+### Local Development
 
 **Prerequisites:** Go 1.22+, Node.js 20+, pnpm
 
 ```bash
-# Setup and run
 ./scripts/dev.sh
-
-# This will:
-# - Check prerequisites
-# - Generate master key (~/.ocm/master.key)
-# - Install frontend dependencies
-# - Build frontend + backend
-# - Start the server
 
 # Admin UI: http://localhost:8080
 # Agent API: http://localhost:9999
@@ -94,12 +81,9 @@ Or build the OpenClaw image separately:
 
 ### Manual Setup
 
-If you prefer to do things manually:
-
 ```bash
 # 1. Setup environment
-cp .env.example .env
-./ocm keygen --stdout  # Copy output to .env as OCM_MASTER_KEY
+./scripts/setup.sh
 
 # 2. Build (requires just: https://github.com/casey/just)
 just build
@@ -256,6 +240,67 @@ This runs:
 - **Approval**: Human-in-the-loop for sensitive operations
 - **TTL**: Auto-expiration prevents credential accumulation
 - **Audit**: Complete log of all access and approvals
+
+### Security Notes
+
+**Back up your `.env` file!** The master key encrypts all stored credentials. If lost, they cannot be recovered.
+
+**Protect the Admin UI.** It has full credential access. In production:
+- Run behind a reverse proxy with authentication
+- Or bind to localhost only and use SSH tunneling
+- Never expose directly to the internet
+
+**Container permissions:**
+- OCM runs as non-root (UID 1000) by default
+- The `.env` file is created with mode 600 (owner read/write only)
+- Config directories are mode 700
+
+## Troubleshooting
+
+### "Master key not found"
+
+Run setup to generate keys:
+```bash
+./scripts/setup.sh
+```
+
+### "Permission denied" on database
+
+The volume may have wrong ownership. Fix with:
+```bash
+docker compose -f docker-compose.openclaw.yml down
+docker volume rm ocm_ocm-data
+docker compose -f docker-compose.openclaw.yml up -d
+```
+
+### Credentials not appearing in OpenClaw
+
+1. Check the `.env` file exists:
+   ```bash
+   docker exec openclaw cat /home/node/.openclaw/.env
+   ```
+
+2. Check the env var is loaded:
+   ```bash
+   docker exec openclaw env | grep YOUR_VAR_NAME
+   ```
+
+3. If file exists but var doesn't, restart OpenClaw:
+   ```bash
+   docker restart openclaw
+   ```
+
+### Existing OpenClaw Installation
+
+If you already have OpenClaw running and want to add OCM:
+
+1. Note your OpenClaw config directory (usually `~/.openclaw`)
+2. Set it before running setup:
+   ```bash
+   export OPENCLAW_CONFIG_DIR=/path/to/your/.openclaw
+   ./scripts/setup.sh
+   ```
+3. The setup will detect and use your existing configuration
 
 ## License
 
