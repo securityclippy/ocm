@@ -115,6 +115,7 @@ func NewRPCClient(gatewayURL, token string) *RPCClient {
 func (c *RPCClient) autoConnect() {
 	retryInterval := 5 * time.Second
 	maxRetries := 60 // Try for 5 minutes
+	pairingInstructionsShown := false
 
 	for i := 0; i < maxRetries; i++ {
 		if c.connected {
@@ -128,10 +129,35 @@ func (c *RPCClient) autoConnect() {
 			return
 		}
 
-		fmt.Fprintf(os.Stderr, "INFO: gateway RPC connect attempt %d failed: %v\n", i+1, err)
+		errStr := err.Error()
+		
+		// Check if pairing is required and show helpful instructions (once)
+		if strings.Contains(errStr, "pairing required") && !pairingInstructionsShown {
+			pairingInstructionsShown = true
+			deviceID := c.GetDeviceID()
+			fmt.Fprintf(os.Stderr, "\n")
+			fmt.Fprintf(os.Stderr, "╔══════════════════════════════════════════════════════════════════╗\n")
+			fmt.Fprintf(os.Stderr, "║  🔐 OCM Device Pairing Required                                  ║\n")
+			fmt.Fprintf(os.Stderr, "╠══════════════════════════════════════════════════════════════════╣\n")
+			fmt.Fprintf(os.Stderr, "║  OCM needs to be approved to connect to OpenClaw.                ║\n")
+			fmt.Fprintf(os.Stderr, "║                                                                  ║\n")
+			fmt.Fprintf(os.Stderr, "║  Run this command to approve:                                    ║\n")
+			fmt.Fprintf(os.Stderr, "║                                                                  ║\n")
+			fmt.Fprintf(os.Stderr, "║    docker exec -it openclaw openclaw devices list                ║\n")
+			fmt.Fprintf(os.Stderr, "║                                                                  ║\n")
+			fmt.Fprintf(os.Stderr, "║  Then approve the pending request for device:                    ║\n")
+			fmt.Fprintf(os.Stderr, "║    %.60s...  ║\n", deviceID)
+			fmt.Fprintf(os.Stderr, "║                                                                  ║\n")
+			fmt.Fprintf(os.Stderr, "║    docker exec -it openclaw openclaw devices approve <requestId> ║\n")
+			fmt.Fprintf(os.Stderr, "║                                                                  ║\n")
+			fmt.Fprintf(os.Stderr, "║  Waiting for approval...                                         ║\n")
+			fmt.Fprintf(os.Stderr, "╚══════════════════════════════════════════════════════════════════╝\n")
+			fmt.Fprintf(os.Stderr, "\n")
+		} else if !strings.Contains(errStr, "pairing required") {
+			// Only log non-pairing errors (pairing just needs user action)
+			fmt.Fprintf(os.Stderr, "INFO: gateway RPC connect attempt %d failed: %v\n", i+1, err)
+		}
 
-		// If it's a pairing issue, keep retrying (user needs to approve)
-		// Otherwise, might be a config issue
 		time.Sleep(retryInterval)
 	}
 
