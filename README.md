@@ -92,6 +92,25 @@ just build
 ./ocm serve
 ```
 
+### Cleanup & Reset
+
+```bash
+# Stop containers, remove OCM image
+./scripts/clean.sh
+
+# Stop all, remove all images (OCM + OpenClaw)
+./scripts/clean.sh all
+
+# Remove data volumes (⚠️ deletes credentials!)
+./scripts/clean.sh volumes
+
+# Complete teardown (⚠️ deletes everything!)
+./scripts/clean.sh full
+
+# Nuclear option: teardown + fresh start
+./scripts/reset.sh
+```
+
 ### Key Management
 
 OCM uses a 256-bit master key to encrypt all stored credentials.
