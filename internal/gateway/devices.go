@@ -78,16 +78,18 @@ type deviceIdentity struct {
 
 // RPCClient is a WebSocket RPC client for OpenClaw Gateway.
 type RPCClient struct {
-	gatewayURL string
-	token      string
-	identity   *deviceIdentity
-	conn       *websocket.Conn
-	mu         sync.Mutex
-	nextID     uint64
-	pending    map[string]chan *rpcMessage
-	pendingMu  sync.Mutex
-	connected  bool
-	readDone   chan struct{}
+	gatewayURL       string
+	token            string
+	identity         *deviceIdentity
+	conn             *websocket.Conn
+	mu               sync.Mutex
+	nextID           uint64
+	pending          map[string]chan *rpcMessage
+	pendingMu        sync.Mutex
+	connected        bool
+	needsPairing     bool   // True if last connect failed due to pairing requirement
+	pendingRequestID string // Request ID for pending pairing, if known
+	readDone         chan struct{}
 }
 
 // NewRPCClient creates a new RPC client.
@@ -381,9 +383,31 @@ func (c *RPCClient) Connect() error {
 			errMsg = helloMsg.Error.Message
 		}
 		conn.Close()
+		
+		// Track pairing status for UI
+		if strings.Contains(errMsg, "pairing required") {
+			c.mu.Lock()
+			c.needsPairing = true
+			// Try to extract requestId from error details if available
+			if helloMsg.Error != nil {
+				if payload, ok := helloMsg.Payload.(map[string]interface{}); ok {
+					if reqID, ok := payload["requestId"].(string); ok {
+						c.pendingRequestID = reqID
+					}
+				}
+			}
+			c.mu.Unlock()
+		}
+		
 		return fmt.Errorf("connect rejected: %s", errMsg)
 	}
 
+	// Clear pairing flag on successful connect
+	c.mu.Lock()
+	c.needsPairing = false
+	c.pendingRequestID = ""
+	c.mu.Unlock()
+	
 	c.connected = true
 	c.nextID = 1 // Start from 2 for subsequent calls (1 used for connect)
 
@@ -549,6 +573,27 @@ func (c *RPCClient) GetDeviceID() string {
 		return c.identity.DeviceID
 	}
 	return ""
+}
+
+// IsConnected returns whether the RPC client is connected to Gateway.
+func (c *RPCClient) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connected
+}
+
+// NeedsPairing returns true if the last connection attempt failed due to pairing requirement.
+func (c *RPCClient) NeedsPairing() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.needsPairing
+}
+
+// GetPendingRequestID returns the request ID for the pending pairing request, if known.
+func (c *RPCClient) GetPendingRequestID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pendingRequestID
 }
 
 // ErrRestartDisabled is returned when Gateway restart is not enabled in OpenClaw config.

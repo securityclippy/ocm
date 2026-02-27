@@ -120,9 +120,18 @@ type ApproveRequest struct {
 
 // SetupStatusResponse indicates whether initial setup is complete.
 type SetupStatusResponse struct {
-	SetupComplete bool     `json:"setupComplete"`
-	MissingKeys   []string `json:"missingKeys"`   // Required credentials not yet configured
-	ConfiguredKeys []string `json:"configuredKeys"` // Already configured credentials
+	SetupComplete    bool              `json:"setupComplete"`
+	MissingKeys      []string          `json:"missingKeys"`      // Required credentials not yet configured
+	ConfiguredKeys   []string          `json:"configuredKeys"`   // Already configured credentials
+	GatewayStatus    *GatewayStatusInfo `json:"gatewayStatus,omitempty"` // Gateway connection status
+}
+
+// GatewayStatusInfo contains Gateway connection and pairing status.
+type GatewayStatusInfo struct {
+	Connected      bool   `json:"connected"`
+	PairingNeeded  bool   `json:"pairingNeeded"`
+	DeviceID       string `json:"deviceId,omitempty"`
+	ApproveCommand string `json:"approveCommand,omitempty"` // Exact command to run
 }
 
 // requiredModelProviders lists the services that provide LLM API keys.
@@ -172,6 +181,27 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		resp.MissingKeys = []string{"anthropic OR openai OR google OR azure-openai"}
 	} else {
 		resp.MissingKeys = []string{}
+	}
+
+	// Add Gateway connection status
+	if h.rpc != nil {
+		gwStatus := &GatewayStatusInfo{
+			Connected:     h.rpc.IsConnected(),
+			PairingNeeded: h.rpc.NeedsPairing(),
+			DeviceID:      h.rpc.GetDeviceID(),
+		}
+		
+		if gwStatus.PairingNeeded {
+			// Provide exact command to approve
+			if reqID := h.rpc.GetPendingRequestID(); reqID != "" {
+				gwStatus.ApproveCommand = fmt.Sprintf("docker exec -it openclaw openclaw devices approve %s", reqID)
+			} else {
+				// Don't know the request ID yet, show list command first
+				gwStatus.ApproveCommand = fmt.Sprintf("docker exec -it openclaw openclaw devices list\n# Then: docker exec -it openclaw openclaw devices approve <requestId>")
+			}
+		}
+		
+		resp.GatewayStatus = gwStatus
 	}
 
 	h.jsonResponse(w, resp)
