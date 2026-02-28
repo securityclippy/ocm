@@ -89,6 +89,7 @@ type RPCClient struct {
 	statusMu         sync.RWMutex // Protects status fields (separate to avoid blocking on Connect)
 	connected        bool
 	needsPairing     bool   // True if last connect failed due to pairing requirement
+	tokenMismatch    bool   // True if last connect failed due to token mismatch
 	pendingRequestID string // Request ID for pending pairing, if known
 	readDone         chan struct{}
 }
@@ -390,10 +391,11 @@ func (c *RPCClient) Connect() error {
 		}
 		conn.Close()
 		
-		// Track pairing status for UI
+		// Track connection status for UI
+		c.statusMu.Lock()
 		if strings.Contains(errMsg, "pairing required") {
-			c.statusMu.Lock()
 			c.needsPairing = true
+			c.tokenMismatch = false
 			// Try to extract requestId from error details if available
 			if helloMsg.Error != nil {
 				if payload, ok := helloMsg.Payload.(map[string]interface{}); ok {
@@ -402,15 +404,19 @@ func (c *RPCClient) Connect() error {
 					}
 				}
 			}
-			c.statusMu.Unlock()
+		} else if strings.Contains(errMsg, "token mismatch") || strings.Contains(errMsg, "unauthorized") {
+			c.tokenMismatch = true
+			c.needsPairing = false
 		}
+		c.statusMu.Unlock()
 		
 		return fmt.Errorf("connect rejected: %s", errMsg)
 	}
 
-	// Clear pairing flag and set connected on success
+	// Clear error flags and set connected on success
 	c.statusMu.Lock()
 	c.needsPairing = false
+	c.tokenMismatch = false
 	c.pendingRequestID = ""
 	c.connected = true
 	c.statusMu.Unlock()
@@ -598,6 +604,13 @@ func (c *RPCClient) NeedsPairing() bool {
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
 	return c.needsPairing
+}
+
+// TokenMismatch returns true if the last connection attempt failed due to token mismatch.
+func (c *RPCClient) TokenMismatch() bool {
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
+	return c.tokenMismatch
 }
 
 // GetPendingRequestID returns the request ID for the pending pairing request, if known.

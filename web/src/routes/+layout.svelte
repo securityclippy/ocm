@@ -7,7 +7,14 @@
 
 	let setupComplete = true; // Default to true to avoid flash
 	let loading = true;
-	let gatewayStatus: { connected: boolean; pairingNeeded: boolean; deviceId?: string; approveCommand?: string } | null = null;
+	let gatewayStatus: { 
+		connected: boolean; 
+		pairingNeeded: boolean; 
+		tokenMismatch?: boolean;
+		deviceId?: string; 
+		approveCommand?: string;
+		fixCommand?: string;
+	} | null = null;
 
 	onMount(async () => {
 		try {
@@ -27,9 +34,9 @@
 		setupComplete = true;
 	}
 	
-	function copyCommand() {
-		if (gatewayStatus?.approveCommand) {
-			navigator.clipboard.writeText(gatewayStatus.approveCommand);
+	function copyCommand(cmd: string | undefined) {
+		if (cmd) {
+			navigator.clipboard.writeText(cmd);
 		}
 	}
 </script>
@@ -44,7 +51,31 @@
 	<div class="min-h-screen flex">
 		<Sidebar />
 		<main class="flex-1 p-8">
-			{#if gatewayStatus?.pairingNeeded}
+			{#if gatewayStatus?.tokenMismatch}
+				<div class="mb-6 bg-red-900/50 border border-red-600 rounded-lg p-4">
+					<div class="flex items-start gap-3">
+						<span class="text-2xl">🔑</span>
+						<div class="flex-1">
+							<h3 class="text-red-200 font-semibold">Gateway Token Mismatch</h3>
+							<p class="text-red-100/80 text-sm mt-1">
+								OCM and OpenClaw have different gateway tokens. This usually happens when they were set up separately.
+							</p>
+							<div class="mt-3 bg-black/40 rounded p-3 font-mono text-sm text-green-400 relative group">
+								<pre class="whitespace-pre-wrap">{gatewayStatus.fixCommand}</pre>
+								<button 
+									on:click={() => copyCommand(gatewayStatus?.fixCommand)}
+									class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs text-gray-300"
+								>
+									Copy
+								</button>
+							</div>
+							<p class="text-red-100/60 text-xs mt-2">
+								After fixing, refresh this page to verify the connection.
+							</p>
+						</div>
+					</div>
+				</div>
+			{:else if gatewayStatus?.pairingNeeded}
 				<div class="mb-6 bg-yellow-900/50 border border-yellow-600 rounded-lg p-4">
 					<div class="flex items-start gap-3">
 						<span class="text-2xl">🔐</span>
@@ -56,7 +87,7 @@
 							<div class="mt-3 bg-black/40 rounded p-3 font-mono text-sm text-green-400 relative group">
 								<pre class="whitespace-pre-wrap">{gatewayStatus.approveCommand}</pre>
 								<button 
-									on:click={copyCommand}
+									on:click={() => copyCommand(gatewayStatus?.approveCommand)}
 									class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs text-gray-300"
 								>
 									Copy

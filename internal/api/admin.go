@@ -152,8 +152,10 @@ type SetupStatusResponse struct {
 type GatewayStatusInfo struct {
 	Connected      bool   `json:"connected"`
 	PairingNeeded  bool   `json:"pairingNeeded"`
+	TokenMismatch  bool   `json:"tokenMismatch"`
 	DeviceID       string `json:"deviceId,omitempty"`
 	ApproveCommand string `json:"approveCommand,omitempty"` // Exact command to run
+	FixCommand     string `json:"fixCommand,omitempty"`     // Command to fix token mismatch
 }
 
 // requiredModelProviders lists the services that provide LLM API keys.
@@ -210,6 +212,7 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		gwStatus := &GatewayStatusInfo{
 			Connected:     h.rpc.IsConnected(),
 			PairingNeeded: h.rpc.NeedsPairing(),
+			TokenMismatch: h.rpc.TokenMismatch(),
 			DeviceID:      h.rpc.GetDeviceID(),
 		}
 		
@@ -221,6 +224,18 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 				// Don't know the request ID yet, show list command first
 				gwStatus.ApproveCommand = "docker exec -it openclaw node /app/dist/index.js devices list\n# Then: docker exec -it openclaw node /app/dist/index.js devices approve <requestId>"
 			}
+		}
+		
+		if gwStatus.TokenMismatch {
+			// Provide instructions to fix token mismatch
+			gwStatus.FixCommand = `# Option 1: Get OCM's token and update OpenClaw config
+grep OPENCLAW_GATEWAY_TOKEN .env
+# Then add to openclaw.docker.json5:
+#   gateway: { auth: { token: "YOUR_TOKEN" } }
+docker compose -f docker-compose.openclaw.yml restart openclaw
+
+# Option 2: Reset everything with matching tokens
+./scripts/reset.sh`
 		}
 		
 		resp.GatewayStatus = gwStatus

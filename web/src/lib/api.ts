@@ -68,8 +68,10 @@ export interface DashboardData {
 export interface GatewayStatusInfo {
 	connected: boolean;
 	pairingNeeded: boolean;
+	tokenMismatch?: boolean;
 	deviceId?: string;
 	approveCommand?: string;
+	fixCommand?: string;
 }
 
 export interface SetupStatus {
