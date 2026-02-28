@@ -150,6 +150,16 @@
 					return;
 				}
 
+				// Special validation for slack-personal: xoxc- tokens require cookie
+				if (selectedTemplate.id === 'slack-personal') {
+					const userToken = fieldValues['userToken'] || '';
+					const cookie = fieldValues['cookie'] || '';
+					if (userToken.startsWith('xoxc-') && !cookie) {
+						saveError = 'Browser tokens (xoxc-) require the cookie field. See instructions above.';
+						return;
+					}
+				}
+
 				// Use the primary token field's envVar
 				const envVar = primaryTokenField.envVar;
 				const readToken = fieldValues[primaryTokenField.name];

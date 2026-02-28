@@ -145,46 +145,58 @@ export const serviceTemplates: ServiceTemplate[] = [
 		category: 'integration',
 		description: 'Long-lived token to access Slack as yourself',
 		docsUrl: 'https://docs.openclaw.ai/channels/slack',
-		setupInstructions: `Option 1: OAuth App (recommended - long-lived)
+		setupInstructions: `═══════════════════════════════════════════════════
+OPTION 1: OAuth App (Recommended - Never Expires)
+═══════════════════════════════════════════════════
 1. Go to api.slack.com/apps → Create New App → From scratch
 2. Name it anything (e.g., "My Personal Access")
-3. OAuth & Permissions → User Token Scopes → Add these:
-   - channels:history, channels:read (public channels)
-   - groups:history, groups:read (private channels)
-   - im:history, im:read (DMs)
-   - mpim:history, mpim:read (group DMs)
-   - users:read (user info)
-   - search:read (search messages)
-   - files:read (attachments)
-4. Install to Workspace (top of OAuth page)
-5. Copy the User OAuth Token (xoxp-...)
+3. OAuth & Permissions → User Token Scopes → Add:
+   - channels:history, channels:read
+   - groups:history, groups:read
+   - im:history, im:read
+   - mpim:history, mpim:read
+   - users:read, search:read, files:read
+4. Install to Workspace
+5. Copy User OAuth Token → paste below
 
-This token is long-lived and won't expire!
+   ✅ Just need: User Token (xoxp-...)
+   ❌ Cookie: Not needed
 
----
-Option 2: Browser token (short-lived, expires on logout)
-Both values required - get from browser DevTools:
-- Token: Console → JSON.parse(localStorage.localConfig_v2).teams[...].token (xoxc-...)
-- Cookie: Application → Cookies → copy "d" value (xoxd-...)`,
+═══════════════════════════════════════════════════
+OPTION 2: Browser Token (Quick but Expires on Logout)
+═══════════════════════════════════════════════════
+⚠️  REQUIRES BOTH TOKEN AND COOKIE
+
+Open Slack in browser → DevTools (F12):
+
+1. GET THE TOKEN:
+   Console tab → paste this:
+   JSON.parse(localStorage.localConfig_v2).teams[Object.keys(JSON.parse(localStorage.localConfig_v2).teams)[0]].token
+   
+   Copy the result (starts with xoxc-...)
+
+2. GET THE COOKIE:
+   Application tab → Cookies → slack.com
+   Find the "d" cookie → copy its value (starts with xoxd-...)
+
+   ✅ Need BOTH: User Token (xoxc-...) AND Cookie (xoxd-...)`,
 		fields: [
 			{
 				name: 'userToken',
 				label: 'User Token',
 				type: 'password',
 				placeholder: 'xoxp-... or xoxc-...',
-				required: false,
-				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (needs cookie)',
-				// User token goes to config file, not env var
+				required: true,
+				helpText: 'xoxp- from OAuth app, or xoxc- from browser (requires cookie below)',
 				injection: { type: 'config', path: 'channels.slack.userToken' }
 			},
 			{
 				name: 'cookie',
-				label: 'Cookie',
+				label: 'Cookie (required for xoxc- tokens)',
 				type: 'password',
 				placeholder: 'xoxd-...',
 				required: false,
-				helpText: 'Required for xoxc- browser tokens. Get from browser cookies (the "d" cookie)',
-				// Cookie also goes to config
+				helpText: 'Only needed for browser tokens (xoxc-). The "d" cookie value from slack.com',
 				injection: { type: 'config', path: 'channels.slack.cookie' }
 			}
 		],
