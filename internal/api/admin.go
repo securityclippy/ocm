@@ -227,15 +227,8 @@ func (h *adminHandler) getSetupStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		if gwStatus.TokenMismatch {
-			// Provide instructions to fix token mismatch
-			gwStatus.FixCommand = `# Option 1: Get OCM's token and update OpenClaw config
-grep OPENCLAW_GATEWAY_TOKEN .env
-# Then add to openclaw.docker.json5:
-#   gateway: { auth: { token: "YOUR_TOKEN" } }
-docker compose -f docker-compose.openclaw.yml restart openclaw
-
-# Option 2: Reset everything with matching tokens
-./scripts/reset.sh`
+			// Provide a simple script command, similar to device approval
+			gwStatus.FixCommand = "./scripts/sync-token.sh"
 		}
 		
 		resp.GatewayStatus = gwStatus

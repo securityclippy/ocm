@@ -58,7 +58,7 @@
 						<div class="flex-1">
 							<h3 class="text-red-200 font-semibold">Gateway Token Mismatch</h3>
 							<p class="text-red-100/80 text-sm mt-1">
-								OCM and OpenClaw have different gateway tokens. This usually happens when they were set up separately.
+								OCM and OpenClaw have different gateway tokens. Run this to sync them:
 							</p>
 							<div class="mt-3 bg-black/40 rounded p-3 font-mono text-sm text-green-400 relative group">
 								<pre class="whitespace-pre-wrap">{gatewayStatus.fixCommand}</pre>
@@ -70,7 +70,7 @@
 								</button>
 							</div>
 							<p class="text-red-100/60 text-xs mt-2">
-								After fixing, refresh this page to verify the connection.
+								This reads OpenClaw's token and updates OCM to match. Refresh this page after running.
 							</p>
 						</div>
 					</div>
