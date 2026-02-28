@@ -223,6 +223,27 @@ EOF
     chmod 600 .env
     success "Configuration saved to .env (mode 600)"
 
+    # Also write gateway token to OpenClaw config dir
+    # This is needed for CLI commands (docker exec) to authenticate with the gateway
+    # The gateway process gets the token from docker-compose env vars, but CLI processes
+    # spawned via docker exec don't inherit those - they need to read from .env
+    local oc_env_file="$OPENCLAW_CONFIG_DIR/.env"
+    info "Writing gateway token to $oc_env_file..."
+    
+    # Remove any existing gateway token line
+    if [ -f "$oc_env_file" ]; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' '/OPENCLAW_GATEWAY_TOKEN/d' "$oc_env_file"
+        else
+            sed -i '/OPENCLAW_GATEWAY_TOKEN/d' "$oc_env_file"
+        fi
+    fi
+    
+    # Append the new token
+    echo "OPENCLAW_GATEWAY_TOKEN=$gateway_token" >> "$oc_env_file"
+    chmod 600 "$oc_env_file"
+    success "Gateway token written to $oc_env_file"
+
     # Backup reminder
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
