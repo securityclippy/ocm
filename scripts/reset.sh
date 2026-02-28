@@ -56,7 +56,12 @@ if [ -f .env ]; then
 fi
 # Fall back to default
 OC_CONFIG_DIR="${OC_CONFIG_DIR:-$HOME/.openclaw}"
-echo -e "${BLUE}ℹ${NC}  OpenClaw config dir: $OC_CONFIG_DIR"
+
+if [ -d "$OC_CONFIG_DIR" ]; then
+    echo -e "${BLUE}ℹ${NC}  OpenClaw config dir: $OC_CONFIG_DIR"
+else
+    echo -e "${YELLOW}⚠${NC}  Config dir not found: $OC_CONFIG_DIR (will be created by setup)"
+fi
 
 # Stop containers
 for compose_file in docker-compose.yml docker-compose.openclaw.yml; do
