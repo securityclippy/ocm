@@ -84,9 +84,9 @@ fi
 echo -e "${GREEN}✓${NC}  Updated .env"
 echo ""
 
-# Restart OCM
-echo -e "${BLUE}ℹ${NC}  Restarting OCM..."
-docker compose -f docker-compose.openclaw.yml restart ocm
+# Recreate OCM to pick up .env changes (restart doesn't reload .env)
+echo -e "${BLUE}ℹ${NC}  Recreating OCM container..."
+docker compose -f docker-compose.openclaw.yml up -d --force-recreate ocm
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
