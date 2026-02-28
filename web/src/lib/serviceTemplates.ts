@@ -145,8 +145,7 @@ export const serviceTemplates: ServiceTemplate[] = [
 		category: 'integration',
 		description: 'Long-lived token to access Slack as yourself',
 		docsUrl: 'https://docs.openclaw.ai/channels/slack',
-		setupInstructions: `Create a minimal personal app to get a long-lived user token:
-
+		setupInstructions: `Option 1: OAuth App (recommended - long-lived)
 1. Go to api.slack.com/apps → Create New App → From scratch
 2. Name it anything (e.g., "My Personal Access")
 3. OAuth & Permissions → User Token Scopes → Add these:
@@ -161,30 +160,30 @@ export const serviceTemplates: ServiceTemplate[] = [
 5. Copy the User OAuth Token (xoxp-...)
 
 This token is long-lived and won't expire!
-No bot needed - this acts as YOU.
 
 ---
-Alternative: Browser token (short-lived, expires on logout)
-- DevTools → Application → Cookies → copy "d" (xoxd-...)
-- Console: JSON.parse(localStorage.localConfig_v2).teams[...].token (xoxc-...)`,
+Option 2: Browser token (short-lived, expires on logout)
+Both values required - get from browser DevTools:
+- Token: Console → JSON.parse(localStorage.localConfig_v2).teams[...].token (xoxc-...)
+- Cookie: Application → Cookies → copy "d" value (xoxd-...)`,
 		fields: [
 			{
 				name: 'userToken',
 				label: 'User Token',
 				type: 'password',
-				placeholder: 'xoxp-... (recommended) or xoxc-...',
-				required: true,
-				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (expires)',
+				placeholder: 'xoxp-... or xoxc-...',
+				required: false,
+				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (needs cookie)',
 				// User token goes to config file, not env var
 				injection: { type: 'config', path: 'channels.slack.userToken' }
 			},
 			{
 				name: 'cookie',
-				label: 'Cookie (only for xoxc tokens)',
+				label: 'Cookie',
 				type: 'password',
 				placeholder: 'xoxd-...',
 				required: false,
-				helpText: 'Required only if using browser xoxc- token',
+				helpText: 'Required for xoxc- browser tokens. Get from browser cookies (the "d" cookie)',
 				// Cookie also goes to config
 				injection: { type: 'config', path: 'channels.slack.cookie' }
 			}
