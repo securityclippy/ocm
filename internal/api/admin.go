@@ -989,7 +989,7 @@ func (h *adminHandler) checkSlackStatus(ocConfig map[string]interface{}, storedC
 		Label:         "Slack",
 		RequiredCreds: []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"},
 		StoredCreds:   []string{},
-		SetupCommand:  "docker exec -it openclaw openclaw channels add slack",
+		SetupCommand:  "docker exec -it openclaw openclaw channels add",
 	}
 
 	// Check if Slack is in OpenClaw config
@@ -1026,7 +1026,7 @@ func (h *adminHandler) checkDiscordStatus(ocConfig map[string]interface{}, store
 		Label:         "Discord",
 		RequiredCreds: []string{"DISCORD_BOT_TOKEN"},
 		StoredCreds:   []string{},
-		SetupCommand:  "docker exec -it openclaw openclaw channels add discord",
+		SetupCommand:  "docker exec -it openclaw openclaw channels add",
 	}
 
 	// Check if Discord is in OpenClaw config
@@ -1060,7 +1060,7 @@ func (h *adminHandler) checkTelegramStatus(ocConfig map[string]interface{}, stor
 		Label:         "Telegram",
 		RequiredCreds: []string{"TELEGRAM_BOT_TOKEN"},
 		StoredCreds:   []string{},
-		SetupCommand:  "docker exec -it openclaw openclaw channels add telegram",
+		SetupCommand:  "docker exec -it openclaw openclaw channels add",
 	}
 
 	// Check if Telegram is in OpenClaw config

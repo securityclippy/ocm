@@ -119,7 +119,7 @@
 							</div>
 						</div>
 						<p class="text-xs text-gray-500 mt-2">
-							Run this command to configure {channel.label} in OpenClaw, then add credentials here.
+							Run this to open the channel setup wizard, then add credentials here.
 						</p>
 					{:else if channel.configuredInOC && !channel.ready}
 						<div class="mt-2">
