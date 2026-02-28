@@ -93,15 +93,22 @@ fi
 # Remove project .env
 rm -f .env
 
-# Reset openclaw.docker.json5 to default (remove any hardcoded tokens)
-# Users may have copied their existing config here, which causes token mismatch
+# Check openclaw.docker.json5 for hardcoded tokens
 if [ -f openclaw.docker.json5 ]; then
     if grep -q '"token"' openclaw.docker.json5 2>/dev/null; then
-        echo -e "${YELLOW}⚠${NC}  Found hardcoded token in openclaw.docker.json5 - resetting to default"
-    fi
-fi
-
-cat > openclaw.docker.json5 << 'OCCONFIG'
+        echo -e "${YELLOW}⚠${NC}  Found hardcoded token in openclaw.docker.json5"
+        echo -e "${YELLOW}   ${NC}  This will cause token mismatch errors with OCM"
+        echo ""
+        read -p "   Reset to default? (backup will be saved) [Y/n] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            # Backup existing config
+            backup_file="openclaw.docker.json5.backup.$(date +%Y%m%d_%H%M%S)"
+            cp openclaw.docker.json5 "$backup_file"
+            echo -e "${BLUE}ℹ${NC}  Backed up to: $backup_file"
+            
+            # Reset to default
+            cat > openclaw.docker.json5 << 'OCCONFIG'
 // OpenClaw config for Docker deployment with OCM
 // Mount this to /home/node/.openclaw/openclaw.json
 {
@@ -114,7 +121,12 @@ cat > openclaw.docker.json5 << 'OCCONFIG'
   },
 }
 OCCONFIG
-echo -e "${GREEN}✓${NC}  Reset openclaw.docker.json5 to default"
+            echo -e "${GREEN}✓${NC}  Reset openclaw.docker.json5 to default"
+        else
+            echo -e "${YELLOW}⚠${NC}  Keeping existing config - you may need to sync tokens manually"
+        fi
+    fi
+fi
 
 echo -e "${GREEN}✓${NC}  Cleanup complete"
 echo ""

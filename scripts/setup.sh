@@ -73,9 +73,14 @@ preflight_checks() {
             warn "openclaw.docker.json5 contains a hardcoded gateway token"
             warn "This will cause token mismatch errors with OCM"
             echo ""
-            read -p "   Remove the hardcoded token? [Y/n] " -n 1 -r
+            read -p "   Reset to default? (backup will be saved) [Y/n] " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                # Backup existing config
+                backup_file="openclaw.docker.json5.backup.$(date +%Y%m%d_%H%M%S)"
+                cp openclaw.docker.json5 "$backup_file"
+                info "Backed up to: $backup_file"
+                
                 # Reset to default config
                 cat > openclaw.docker.json5 << 'OCCONFIG'
 // OpenClaw config for Docker deployment with OCM
@@ -90,7 +95,7 @@ preflight_checks() {
   },
 }
 OCCONFIG
-                success "Reset openclaw.docker.json5 to default (token removed)"
+                success "Reset openclaw.docker.json5 to default"
             else
                 warn "Keeping hardcoded token - you may need to sync manually"
             fi
