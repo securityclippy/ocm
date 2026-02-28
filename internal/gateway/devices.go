@@ -751,6 +751,34 @@ func (c *RPCClient) PatchConfig(patch string, reason string) (string, error) {
 	return newHash, nil
 }
 
+// GetConfig fetches the OpenClaw config via RPC.
+// Returns the parsed config as a nested map structure.
+func (c *RPCClient) GetConfig() (map[string]interface{}, error) {
+	resp, err := c.call("config.get", map[string]interface{}{})
+	if err != nil {
+		return nil, fmt.Errorf("config.get failed: %w", err)
+	}
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("config.get error: %s", errMsg)
+	}
+
+	// Extract config from payload
+	if payload, ok := resp.Payload.(map[string]interface{}); ok {
+		if config, ok := payload["config"].(map[string]interface{}); ok {
+			return config, nil
+		}
+		// Fallback: maybe payload IS the config
+		if _, hasChannels := payload["channels"]; hasChannels {
+			return payload, nil
+		}
+	}
+	return nil, fmt.Errorf("unexpected config.get response format")
+}
+
 // tryRestartGateway attempts a single Gateway restart via config.patch.
 func (c *RPCClient) tryRestartGateway(reason string) error {
 	// First, get current config to get the baseHash

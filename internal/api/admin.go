@@ -66,6 +66,9 @@ func NewAdminRouter(db *store.Store, elevSvc *elevation.Service, rpcClient *gate
 		r.Get("/devices", h.listDevices)
 		r.Post("/devices/{requestId}/approve", h.approveDevice)
 		r.Post("/devices/{requestId}/reject", h.rejectDevice)
+
+		// Channel status (OpenClaw channel configuration detection)
+		r.Get("/channels/status", h.getChannelStatus)
 	})
 
 	// Health check
@@ -914,6 +917,175 @@ func (h *adminHandler) rejectDevice(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("device pairing rejected", "requestId", requestID)
 	h.jsonResponse(w, map[string]string{"status": "rejected", "requestId": requestID})
+}
+
+// ChannelStatus represents the configuration state of a channel in OpenClaw.
+type ChannelStatus struct {
+	Channel        string   `json:"channel"`                  // e.g., "slack"
+	Label          string   `json:"label"`                    // e.g., "Slack"
+	ConfiguredInOC bool     `json:"configuredInOC"`           // Present in openclaw.json with token fields
+	RequiredCreds  []string `json:"requiredCreds"`            // Env vars OCM needs to store
+	StoredCreds    []string `json:"storedCreds"`              // Env vars OCM already has
+	Ready          bool     `json:"ready"`                    // Config exists AND all creds stored
+	SetupCommand   string   `json:"setupCommand,omitempty"`   // Command to configure channel
+}
+
+// ChannelStatusResponse is the response for GET /channels/status.
+type ChannelStatusResponse struct {
+	GatewayConnected bool            `json:"gatewayConnected"`
+	Channels         []ChannelStatus `json:"channels"`
+}
+
+func (h *adminHandler) getChannelStatus(w http.ResponseWriter, r *http.Request) {
+	resp := ChannelStatusResponse{
+		GatewayConnected: false,
+		Channels:         []ChannelStatus{},
+	}
+
+	// Get OpenClaw config if connected
+	var ocConfig map[string]interface{}
+	if h.rpc != nil && h.rpc.IsConnected() {
+		resp.GatewayConnected = true
+		var err error
+		ocConfig, err = h.rpc.GetConfig()
+		if err != nil {
+			h.logger.Warn("failed to get OpenClaw config", "error", err)
+		}
+	}
+
+	// Get stored credentials
+	storedCreds, err := h.store.ListCredentials()
+	if err != nil {
+		h.logger.Error("failed to list credentials", "error", err)
+	}
+	storedCredMap := make(map[string]bool)
+	for _, cred := range storedCreds {
+		// Check read level for env var
+		if cred.Read != nil && cred.Read.EnvVar != "" {
+			storedCredMap[cred.Read.EnvVar] = true
+		}
+		// Also check service name as fallback
+		storedCredMap[cred.Service] = true
+	}
+
+	// Check Slack
+	slackStatus := h.checkSlackStatus(ocConfig, storedCredMap)
+	resp.Channels = append(resp.Channels, slackStatus)
+
+	// Check Discord
+	discordStatus := h.checkDiscordStatus(ocConfig, storedCredMap)
+	resp.Channels = append(resp.Channels, discordStatus)
+
+	// Check Telegram
+	telegramStatus := h.checkTelegramStatus(ocConfig, storedCredMap)
+	resp.Channels = append(resp.Channels, telegramStatus)
+
+	h.jsonResponse(w, resp)
+}
+
+func (h *adminHandler) checkSlackStatus(ocConfig map[string]interface{}, storedCreds map[string]bool) ChannelStatus {
+	status := ChannelStatus{
+		Channel:       "slack",
+		Label:         "Slack",
+		RequiredCreds: []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"},
+		StoredCreds:   []string{},
+		SetupCommand:  "docker exec -it openclaw openclaw channels add slack",
+	}
+
+	// Check if Slack is in OpenClaw config
+	if ocConfig != nil {
+		if channels, ok := ocConfig["channels"].(map[string]interface{}); ok {
+			if slack, ok := channels["slack"].(map[string]interface{}); ok {
+				// Slack config exists - check if it has token fields (even if placeholder)
+				_, hasBotToken := slack["botToken"]
+				_, hasAppToken := slack["appToken"]
+				// Also check accounts structure for multi-account setup
+				if accounts, ok := slack["accounts"].(map[string]interface{}); ok && len(accounts) > 0 {
+					status.ConfiguredInOC = true
+				} else {
+					status.ConfiguredInOC = hasBotToken || hasAppToken
+				}
+			}
+		}
+	}
+
+	// Check what creds OCM has stored
+	for _, envVar := range status.RequiredCreds {
+		if storedCreds[envVar] {
+			status.StoredCreds = append(status.StoredCreds, envVar)
+		}
+	}
+
+	status.Ready = status.ConfiguredInOC && len(status.StoredCreds) == len(status.RequiredCreds)
+	return status
+}
+
+func (h *adminHandler) checkDiscordStatus(ocConfig map[string]interface{}, storedCreds map[string]bool) ChannelStatus {
+	status := ChannelStatus{
+		Channel:       "discord",
+		Label:         "Discord",
+		RequiredCreds: []string{"DISCORD_BOT_TOKEN"},
+		StoredCreds:   []string{},
+		SetupCommand:  "docker exec -it openclaw openclaw channels add discord",
+	}
+
+	// Check if Discord is in OpenClaw config
+	if ocConfig != nil {
+		if channels, ok := ocConfig["channels"].(map[string]interface{}); ok {
+			if discord, ok := channels["discord"].(map[string]interface{}); ok {
+				_, hasToken := discord["token"]
+				if accounts, ok := discord["accounts"].(map[string]interface{}); ok && len(accounts) > 0 {
+					status.ConfiguredInOC = true
+				} else {
+					status.ConfiguredInOC = hasToken
+				}
+			}
+		}
+	}
+
+	// Check what creds OCM has stored
+	for _, envVar := range status.RequiredCreds {
+		if storedCreds[envVar] {
+			status.StoredCreds = append(status.StoredCreds, envVar)
+		}
+	}
+
+	status.Ready = status.ConfiguredInOC && len(status.StoredCreds) == len(status.RequiredCreds)
+	return status
+}
+
+func (h *adminHandler) checkTelegramStatus(ocConfig map[string]interface{}, storedCreds map[string]bool) ChannelStatus {
+	status := ChannelStatus{
+		Channel:       "telegram",
+		Label:         "Telegram",
+		RequiredCreds: []string{"TELEGRAM_BOT_TOKEN"},
+		StoredCreds:   []string{},
+		SetupCommand:  "docker exec -it openclaw openclaw channels add telegram",
+	}
+
+	// Check if Telegram is in OpenClaw config
+	if ocConfig != nil {
+		if channels, ok := ocConfig["channels"].(map[string]interface{}); ok {
+			if telegram, ok := channels["telegram"].(map[string]interface{}); ok {
+				_, hasToken := telegram["botToken"]
+				if accounts, ok := telegram["accounts"].(map[string]interface{}); ok && len(accounts) > 0 {
+					status.ConfiguredInOC = true
+				} else {
+					status.ConfiguredInOC = hasToken
+				}
+			}
+		}
+	}
+
+	// Check what creds OCM has stored
+	for _, envVar := range status.RequiredCreds {
+		if storedCreds[envVar] {
+			status.StoredCreds = append(status.StoredCreds, envVar)
+		}
+	}
+
+	status.Ready = status.ConfiguredInOC && len(status.StoredCreds) == len(status.RequiredCreds)
+	return status
 }
 
 // spaHandler serves the SvelteKit SPA with fallback to index.html.
