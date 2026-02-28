@@ -66,6 +66,36 @@ preflight_checks() {
     if [ $failed -eq 1 ]; then
         exit 1
     fi
+    
+    # Check for hardcoded token in openclaw.docker.json5
+    if [ -f openclaw.docker.json5 ]; then
+        if grep -q '"token"' openclaw.docker.json5 2>/dev/null; then
+            warn "openclaw.docker.json5 contains a hardcoded gateway token"
+            warn "This will cause token mismatch errors with OCM"
+            echo ""
+            read -p "   Remove the hardcoded token? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                # Reset to default config
+                cat > openclaw.docker.json5 << 'OCCONFIG'
+// OpenClaw config for Docker deployment with OCM
+// Mount this to /home/node/.openclaw/openclaw.json
+{
+  gateway: {
+    controlUi: {
+      enabled: true,
+      // Allow CORS from any origin using Host header (safe for local/dev)
+      dangerouslyAllowHostHeaderOriginFallback: true,
+    },
+  },
+}
+OCCONFIG
+                success "Reset openclaw.docker.json5 to default (token removed)"
+            else
+                warn "Keeping hardcoded token - you may need to sync manually"
+            fi
+        fi
+    fi
 }
 
 # ===========================================

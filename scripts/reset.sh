@@ -93,6 +93,29 @@ fi
 # Remove project .env
 rm -f .env
 
+# Reset openclaw.docker.json5 to default (remove any hardcoded tokens)
+# Users may have copied their existing config here, which causes token mismatch
+if [ -f openclaw.docker.json5 ]; then
+    if grep -q '"token"' openclaw.docker.json5 2>/dev/null; then
+        echo -e "${YELLOW}⚠${NC}  Found hardcoded token in openclaw.docker.json5 - resetting to default"
+    fi
+fi
+
+cat > openclaw.docker.json5 << 'OCCONFIG'
+// OpenClaw config for Docker deployment with OCM
+// Mount this to /home/node/.openclaw/openclaw.json
+{
+  gateway: {
+    controlUi: {
+      enabled: true,
+      // Allow CORS from any origin using Host header (safe for local/dev)
+      dangerouslyAllowHostHeaderOriginFallback: true,
+    },
+  },
+}
+OCCONFIG
+echo -e "${GREEN}✓${NC}  Reset openclaw.docker.json5 to default"
+
 echo -e "${GREEN}✓${NC}  Cleanup complete"
 echo ""
 
