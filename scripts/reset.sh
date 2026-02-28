@@ -49,6 +49,15 @@ echo ""
 echo -e "${BLUE}[1/2]${NC} Cleaning up..."
 echo ""
 
+# IMPORTANT: Read config dir from .env BEFORE deleting it
+OC_CONFIG_DIR=""
+if [ -f .env ]; then
+    OC_CONFIG_DIR=$(grep "^OPENCLAW_CONFIG_DIR=" .env 2>/dev/null | cut -d= -f2 || true)
+fi
+# Fall back to default
+OC_CONFIG_DIR="${OC_CONFIG_DIR:-$HOME/.openclaw}"
+echo -e "${BLUE}ℹ${NC}  OpenClaw config dir: $OC_CONFIG_DIR"
+
 # Stop containers
 for compose_file in docker-compose.yml docker-compose.openclaw.yml; do
     if [ -f "$compose_file" ]; then
@@ -65,21 +74,19 @@ for vol in $(docker volume ls -q | grep -E "^ocm[_-]" 2>/dev/null || true); do
     docker volume rm "$vol" 2>/dev/null || true
 done
 
-# Remove project .env
-rm -f .env
-
-# Also clear any stale gateway token from OpenClaw's config dir
+# Clear stale gateway token from OpenClaw's config dir BEFORE removing project .env
 # (OpenClaw loads ~/.openclaw/.env which might have an old token)
-OC_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
 if [ -f "$OC_CONFIG_DIR/.env" ]; then
-    echo -e "${BLUE}ℹ${NC}  Clearing stale tokens from $OC_CONFIG_DIR/.env"
-    # Remove gateway token line but keep other credentials (OCM manages those)
+    echo -e "${BLUE}ℹ${NC}  Clearing stale gateway token from $OC_CONFIG_DIR/.env"
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' '/OPENCLAW_GATEWAY_TOKEN/d' "$OC_CONFIG_DIR/.env"
     else
         sed -i '/OPENCLAW_GATEWAY_TOKEN/d' "$OC_CONFIG_DIR/.env"
     fi
 fi
+
+# Remove project .env
+rm -f .env
 
 echo -e "${GREEN}✓${NC}  Cleanup complete"
 echo ""
