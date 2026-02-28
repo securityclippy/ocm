@@ -117,6 +117,18 @@ type AccessLevelConfig struct {
 	Token        string `json:"token"`                  // The credential value
 	RefreshToken string `json:"refreshToken,omitempty"` // For OAuth
 	MaxTTL       string `json:"maxTTL,omitempty"`       // e.g., "1h" - only for ReadWrite
+
+	// Additional fields injected alongside the primary token (e.g., Slack cookie)
+	AdditionalFields []AdditionalFieldConfig `json:"additionalFields,omitempty"`
+}
+
+// AdditionalFieldConfig is an extra field injected with the primary token.
+type AdditionalFieldConfig struct {
+	Name          string `json:"name"`                    // Field identifier
+	InjectionType string `json:"injectionType,omitempty"` // "env" or "config"
+	EnvVar        string `json:"envVar,omitempty"`
+	ConfigPath    string `json:"configPath,omitempty"`
+	Value         string `json:"value"`
 }
 
 // GetInjectionType returns the injection type, defaulting to "env".
@@ -333,6 +345,22 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Convert additional fields
+	var additionalFields []store.AdditionalField
+	for _, af := range req.Read.AdditionalFields {
+		injType := store.InjectionEnv
+		if af.InjectionType == "config" {
+			injType = store.InjectionConfig
+		}
+		additionalFields = append(additionalFields, store.AdditionalField{
+			Name:          af.Name,
+			InjectionType: injType,
+			EnvVar:        af.EnvVar,
+			ConfigPath:    af.ConfigPath,
+			Value:         af.Value,
+		})
+	}
+
 	// Convert to store.Credential with new Read/ReadWrite model
 	cred := &store.Credential{
 		ID:          generateID("cred"),
@@ -340,11 +368,12 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		DisplayName: req.DisplayName,
 		Type:        req.Type,
 		Read: &store.AccessLevel{
-			InjectionType: req.Read.GetInjectionType(),
-			EnvVar:        req.Read.EnvVar,
-			ConfigPath:    req.Read.ConfigPath,
-			Token:         req.Read.Token,
-			RefreshToken:  req.Read.RefreshToken,
+			InjectionType:    req.Read.GetInjectionType(),
+			EnvVar:           req.Read.EnvVar,
+			ConfigPath:       req.Read.ConfigPath,
+			Token:            req.Read.Token,
+			RefreshToken:     req.Read.RefreshToken,
+			AdditionalFields: additionalFields,
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -391,12 +420,27 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 				var writeErr error
 				if injType == store.InjectionConfig {
 					// Config injection - patch the config file (triggers restart)
-					writeErr = h.elevation.Gateway().SetConfigCredentials([]gateway.ConfigCredential{
+					// Collect all config credentials (primary + additional fields)
+					configCreds := []gateway.ConfigCredential{
 						{Path: injKey, Value: cred.Read.Token},
-					})
+					}
+					for _, af := range cred.Read.AdditionalFields {
+						if af.InjectionType == store.InjectionConfig && af.ConfigPath != "" {
+							configCreds = append(configCreds, gateway.ConfigCredential{
+								Path: af.ConfigPath, Value: af.Value,
+							})
+						}
+					}
+					writeErr = h.elevation.Gateway().SetConfigCredentials(configCreds)
 				} else {
 					// Env injection - write to .env file
 					writeErr = h.elevation.Gateway().WriteCredentialToEnv(injKey, cred.Read.Token)
+					// Also write additional env fields
+					for _, af := range cred.Read.AdditionalFields {
+						if af.InjectionType == store.InjectionEnv && af.EnvVar != "" && writeErr == nil {
+							writeErr = h.elevation.Gateway().WriteCredentialToEnv(af.EnvVar, af.Value)
+						}
+					}
 					if writeErr == nil {
 						// Trigger Gateway restart to pick up new credential
 						writeErr = h.elevation.Gateway().RestartGateway("credential created: " + req.Service)

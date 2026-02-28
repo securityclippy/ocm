@@ -101,21 +101,30 @@ export interface DeviceList {
 	paired: PairedDevice[];
 }
 
+export interface AdditionalFieldConfig {
+	name: string;
+	injectionType?: 'env' | 'config';
+	envVar?: string;
+	configPath?: string;
+	value: string;
+}
+
+export interface AccessLevelConfig {
+	injectionType?: 'env' | 'config';  // Default: 'env'
+	envVar?: string;         // For env injection
+	configPath?: string;     // For config injection
+	token: string;
+	refreshToken?: string;
+	maxTTL?: string;         // e.g., "1h", "30m" - only for readWrite
+	additionalFields?: AdditionalFieldConfig[];
+}
+
 export interface CreateCredentialRequest {
 	service: string;
 	displayName: string;
 	type: string;
-	read: {
-		envVar: string;
-		token: string;
-		refreshToken?: string;
-	};
-	readWrite?: {
-		envVar: string;  // Same as read.envVar
-		token: string;
-		refreshToken?: string;
-		maxTTL: string;  // e.g., "1h", "30m"
-	};
+	read: AccessLevelConfig;
+	readWrite?: AccessLevelConfig;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

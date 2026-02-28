@@ -50,7 +50,7 @@ const (
 
 // AccessLevel represents a single access level (read or read-write).
 type AccessLevel struct {
-	// Injection target - where to write the credential
+	// Primary injection target - where to write the main credential
 	InjectionType InjectionType `json:"injectionType,omitempty"` // "env" (default) or "config"
 	EnvVar        string        `json:"envVar,omitempty"`        // For env injection: var name (e.g., "GITHUB_TOKEN")
 	ConfigPath    string        `json:"configPath,omitempty"`    // For config injection: JSON path (e.g., "channels.slack.userToken")
@@ -59,6 +59,19 @@ type AccessLevel struct {
 	RefreshToken string        `json:"refreshToken,omitempty"` // For OAuth refresh
 	ExpiresAt    *time.Time    `json:"expiresAt,omitempty"`    // Token expiration (not elevation)
 	MaxTTL       time.Duration `json:"maxTTL,omitempty"`       // Max elevation duration (only for ReadWrite)
+
+	// Additional fields that get injected alongside the primary token
+	// Used for multi-field credentials like Slack (userToken + cookie)
+	AdditionalFields []AdditionalField `json:"additionalFields,omitempty"`
+}
+
+// AdditionalField is an extra field that gets injected with the primary token.
+type AdditionalField struct {
+	Name          string        `json:"name"`                    // Field identifier (e.g., "cookie")
+	InjectionType InjectionType `json:"injectionType,omitempty"` // "env" or "config"
+	EnvVar        string        `json:"envVar,omitempty"`        // For env injection
+	ConfigPath    string        `json:"configPath,omitempty"`    // For config injection
+	Value         string        `json:"value"`                   // The field value (encrypted at rest)
 }
 
 // GetInjectionType returns the injection type, defaulting to "env" for backwards compat.

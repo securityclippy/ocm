@@ -160,28 +160,68 @@
 					}
 				}
 
-				// Use the primary token field's envVar
-				const envVar = primaryTokenField.envVar;
+				// Build the read access config based on injection type
 				const readToken = fieldValues[primaryTokenField.name];
+				const injection = primaryTokenField.injection || 
+					(primaryTokenField.envVar ? { type: 'env' as const, var: primaryTokenField.envVar } : null);
+				
+				if (!injection) {
+					saveError = 'Configuration error: no injection target for primary field';
+					return;
+				}
+
+				const readAccess: any = {
+					token: readToken
+				};
+
+				if (injection.type === 'config') {
+					readAccess.injectionType = 'config';
+					readAccess.configPath = injection.path;
+				} else {
+					readAccess.injectionType = 'env';
+					readAccess.envVar = injection.var;
+				}
 
 				// Check if there's an explicit readWriteToken field
 				const readWriteField = tokenFields.find(f => f.name === 'readWriteToken');
-				const readWriteToken = readWriteField ? fieldValues['readWriteToken'] : fieldValues['readWriteToken'];
+				const readWriteToken = readWriteField ? fieldValues['readWriteToken'] : undefined;
+
+				// Collect additional fields (non-primary password fields with values)
+				const additionalFields: any[] = [];
+				for (const field of selectedTemplate.fields) {
+					if (field.name === primaryTokenField.name) continue; // Skip primary
+					if (field.type !== 'password') continue; // Only password fields
+					const value = fieldValues[field.name];
+					if (!value) continue; // Skip empty
+					
+					const fieldInjection = field.injection || 
+						(field.envVar ? { type: 'env' as const, var: field.envVar } : null);
+					if (!fieldInjection) continue;
+					
+					additionalFields.push({
+						name: field.name,
+						injectionType: fieldInjection.type,
+						envVar: fieldInjection.type === 'env' ? fieldInjection.var : undefined,
+						configPath: fieldInjection.type === 'config' ? fieldInjection.path : undefined,
+						value: value
+					});
+				}
+
+				if (additionalFields.length > 0) {
+					readAccess.additionalFields = additionalFields;
+				}
 
 				const request: any = {
 					service: selectedTemplate.id,
 					displayName: selectedTemplate.name,
 					type: selectedTemplate.category,
-					read: {
-						envVar,
-						token: readToken
-					}
+					read: readAccess
 				};
 
 				// Add readWrite if provided
 				if (readWriteToken) {
 					request.readWrite = {
-						envVar,
+						...readAccess,  // Same injection target
 						token: readWriteToken,
 						maxTTL: defaultTTL
 					};
