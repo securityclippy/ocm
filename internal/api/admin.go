@@ -107,10 +107,32 @@ type CreateCredentialRequest struct {
 
 // AccessLevelConfig is the configuration for a single access level.
 type AccessLevelConfig struct {
-	EnvVar       string `json:"envVar"`                 // e.g., "GITHUB_TOKEN"
+	// Injection type: "env" (default) or "config"
+	InjectionType string `json:"injectionType,omitempty"`
+	// For env injection: environment variable name (e.g., "GITHUB_TOKEN")
+	EnvVar string `json:"envVar,omitempty"`
+	// For config injection: config path (e.g., "channels.slack.userToken")
+	ConfigPath string `json:"configPath,omitempty"`
+
 	Token        string `json:"token"`                  // The credential value
 	RefreshToken string `json:"refreshToken,omitempty"` // For OAuth
 	MaxTTL       string `json:"maxTTL,omitempty"`       // e.g., "1h" - only for ReadWrite
+}
+
+// GetInjectionType returns the injection type, defaulting to "env".
+func (a *AccessLevelConfig) GetInjectionType() store.InjectionType {
+	if a.InjectionType == "config" {
+		return store.InjectionConfig
+	}
+	return store.InjectionEnv
+}
+
+// GetInjectionKey returns the env var or config path.
+func (a *AccessLevelConfig) GetInjectionKey() string {
+	if a.GetInjectionType() == store.InjectionConfig {
+		return a.ConfigPath
+	}
+	return a.EnvVar
 }
 
 // ApproveRequest is the request body for approving an elevation.
@@ -297,8 +319,9 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Read == nil || req.Read.EnvVar == "" {
-		h.jsonError(w, "read access with envVar is required", http.StatusBadRequest)
+	// Validate read access has an injection target
+	if req.Read == nil || req.Read.GetInjectionKey() == "" {
+		h.jsonError(w, "read access with envVar or configPath is required", http.StatusBadRequest)
 		return
 	}
 
@@ -309,16 +332,18 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		DisplayName: req.DisplayName,
 		Type:        req.Type,
 		Read: &store.AccessLevel{
-			EnvVar:       req.Read.EnvVar,
-			Token:        req.Read.Token,
-			RefreshToken: req.Read.RefreshToken,
+			InjectionType: req.Read.GetInjectionType(),
+			EnvVar:        req.Read.EnvVar,
+			ConfigPath:    req.Read.ConfigPath,
+			Token:         req.Read.Token,
+			RefreshToken:  req.Read.RefreshToken,
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
 	// Add ReadWrite access if provided
-	if req.ReadWrite != nil && req.ReadWrite.EnvVar != "" {
+	if req.ReadWrite != nil && req.ReadWrite.GetInjectionKey() != "" {
 		var maxTTL time.Duration
 		if req.ReadWrite.MaxTTL != "" {
 			var err error
@@ -332,10 +357,12 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		}
 
 		cred.ReadWrite = &store.AccessLevel{
-			EnvVar:       req.ReadWrite.EnvVar,
-			Token:        req.ReadWrite.Token,
-			RefreshToken: req.ReadWrite.RefreshToken,
-			MaxTTL:       maxTTL,
+			InjectionType: req.ReadWrite.GetInjectionType(),
+			EnvVar:        req.ReadWrite.EnvVar,
+			ConfigPath:    req.ReadWrite.ConfigPath,
+			Token:         req.ReadWrite.Token,
+			RefreshToken:  req.ReadWrite.RefreshToken,
+			MaxTTL:        maxTTL,
 		}
 	}
 
@@ -345,24 +372,40 @@ func (h *adminHandler) createCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Sync read credentials to Gateway .env file and restart
+	// Sync read credentials to Gateway and restart
 	var restartWarning string
 	if h.elevation != nil && h.elevation.Gateway() != nil {
-		if cred.Read != nil && cred.Read.EnvVar != "" && cred.Read.Token != "" {
-			if err := h.elevation.Gateway().WriteCredentialToEnv(cred.Read.EnvVar, cred.Read.Token); err != nil {
-				h.logger.Error("failed to write credential to env", "error", err)
-			}
-			// Trigger Gateway restart to pick up new credential
-			if err := h.elevation.Gateway().RestartGateway("credential created: " + req.Service); err != nil {
-				h.logger.Error("failed to restart gateway", "error", err)
-				switch e := err.(type) {
-				case *gateway.ErrRateLimited:
-					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
-				default:
-					if err == gateway.ErrRestartDisabled {
-						restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
-					} else if err == gateway.ErrConfigFileLocked {
-						restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+		if cred.Read != nil && cred.Read.Token != "" {
+			injType := cred.Read.GetInjectionType()
+			injKey := cred.Read.GetInjectionKey()
+
+			if injKey != "" {
+				var writeErr error
+				if injType == store.InjectionConfig {
+					// Config injection - patch the config file (triggers restart)
+					writeErr = h.elevation.Gateway().SetConfigCredentials([]gateway.ConfigCredential{
+						{Path: injKey, Value: cred.Read.Token},
+					})
+				} else {
+					// Env injection - write to .env file
+					writeErr = h.elevation.Gateway().WriteCredentialToEnv(injKey, cred.Read.Token)
+					if writeErr == nil {
+						// Trigger Gateway restart to pick up new credential
+						writeErr = h.elevation.Gateway().RestartGateway("credential created: " + req.Service)
+					}
+				}
+
+				if writeErr != nil {
+					h.logger.Error("failed to inject credential", "error", writeErr)
+					switch e := writeErr.(type) {
+					case *gateway.ErrRateLimited:
+						restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
+					default:
+						if writeErr == gateway.ErrRestartDisabled {
+							restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+						} else if writeErr == gateway.ErrConfigFileLocked {
+							restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+						}
 					}
 				}
 			}
@@ -435,14 +478,16 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 	// Update Read access
 	if req.Read != nil {
 		existing.Read = &store.AccessLevel{
-			EnvVar:       req.Read.EnvVar,
-			Token:        req.Read.Token,
-			RefreshToken: req.Read.RefreshToken,
+			InjectionType: req.Read.GetInjectionType(),
+			EnvVar:        req.Read.EnvVar,
+			ConfigPath:    req.Read.ConfigPath,
+			Token:         req.Read.Token,
+			RefreshToken:  req.Read.RefreshToken,
 		}
 	}
 
 	// Update ReadWrite access
-	if req.ReadWrite != nil && req.ReadWrite.EnvVar != "" {
+	if req.ReadWrite != nil && req.ReadWrite.GetInjectionKey() != "" {
 		var maxTTL time.Duration
 		if req.ReadWrite.MaxTTL != "" {
 			maxTTL, _ = time.ParseDuration(req.ReadWrite.MaxTTL)
@@ -450,10 +495,12 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 			maxTTL = 30 * time.Minute
 		}
 		existing.ReadWrite = &store.AccessLevel{
-			EnvVar:       req.ReadWrite.EnvVar,
-			Token:        req.ReadWrite.Token,
-			RefreshToken: req.ReadWrite.RefreshToken,
-			MaxTTL:       maxTTL,
+			InjectionType: req.ReadWrite.GetInjectionType(),
+			EnvVar:        req.ReadWrite.EnvVar,
+			ConfigPath:    req.ReadWrite.ConfigPath,
+			Token:         req.ReadWrite.Token,
+			RefreshToken:  req.ReadWrite.RefreshToken,
+			MaxTTL:        maxTTL,
 		}
 	} else {
 		existing.ReadWrite = nil // Clear if not provided
@@ -464,24 +511,40 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Sync read credentials to Gateway .env file and restart
+	// Sync read credentials to Gateway and restart
 	var restartWarning string
 	if h.elevation != nil && h.elevation.Gateway() != nil {
-		if existing.Read != nil && existing.Read.EnvVar != "" && existing.Read.Token != "" {
-			if err := h.elevation.Gateway().WriteCredentialToEnv(existing.Read.EnvVar, existing.Read.Token); err != nil {
-				h.logger.Error("failed to write credential to env", "error", err)
-			}
-			// Trigger Gateway restart to pick up updated credential
-			if err := h.elevation.Gateway().RestartGateway("credential updated: " + service); err != nil {
-				h.logger.Error("failed to restart gateway", "error", err)
-				switch e := err.(type) {
-				case *gateway.ErrRateLimited:
-					restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
-				default:
-					if err == gateway.ErrRestartDisabled {
-						restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
-					} else if err == gateway.ErrConfigFileLocked {
-						restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+		if existing.Read != nil && existing.Read.Token != "" {
+			injType := existing.Read.GetInjectionType()
+			injKey := existing.Read.GetInjectionKey()
+
+			if injKey != "" {
+				var writeErr error
+				if injType == store.InjectionConfig {
+					// Config injection - patch the config file (triggers restart)
+					writeErr = h.elevation.Gateway().SetConfigCredentials([]gateway.ConfigCredential{
+						{Path: injKey, Value: existing.Read.Token},
+					})
+				} else {
+					// Env injection - write to .env file
+					writeErr = h.elevation.Gateway().WriteCredentialToEnv(injKey, existing.Read.Token)
+					if writeErr == nil {
+						// Trigger Gateway restart to pick up updated credential
+						writeErr = h.elevation.Gateway().RestartGateway("credential updated: " + service)
+					}
+				}
+
+				if writeErr != nil {
+					h.logger.Error("failed to inject credential", "error", writeErr)
+					switch e := writeErr.(type) {
+					case *gateway.ErrRateLimited:
+						restartWarning = fmt.Sprintf("Gateway restart rate limited. The credential was saved but OpenClaw will pick it up on the next restart (or wait %v and try again).", e.RetryAfter)
+					default:
+						if writeErr == gateway.ErrRestartDisabled {
+							restartWarning = "Gateway restart disabled. The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+						} else if writeErr == gateway.ErrConfigFileLocked {
+							restartWarning = "Gateway config file is locked (WSL2 issue). The credential was saved but OpenClaw needs to be restarted manually.\n\nRestart with: docker compose restart openclaw"
+						}
 					}
 				}
 			}
@@ -511,22 +574,39 @@ func (h *adminHandler) updateCredential(w http.ResponseWriter, r *http.Request) 
 func (h *adminHandler) deleteCredential(w http.ResponseWriter, r *http.Request) {
 	service := chi.URLParam(r, "service")
 
-	// Get credential first to know which env vars to clear
+	// Get credential first to know what to clear
 	cred, err := h.store.GetCredential(service)
 	if err != nil {
 		h.jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Collect env vars to clear
+	// Collect env vars and config paths to clear
 	var envVarsToClear []string
+	var configPathsToClear []string
 	if cred != nil {
-		if cred.Read != nil && cred.Read.EnvVar != "" {
-			envVarsToClear = append(envVarsToClear, cred.Read.EnvVar)
+		if cred.Read != nil {
+			injType := cred.Read.GetInjectionType()
+			injKey := cred.Read.GetInjectionKey()
+			if injKey != "" {
+				if injType == store.InjectionConfig {
+					configPathsToClear = append(configPathsToClear, injKey)
+				} else {
+					envVarsToClear = append(envVarsToClear, injKey)
+				}
+			}
 		}
-		if cred.ReadWrite != nil && cred.ReadWrite.EnvVar != "" && 
-		   (cred.Read == nil || cred.ReadWrite.EnvVar != cred.Read.EnvVar) {
-			envVarsToClear = append(envVarsToClear, cred.ReadWrite.EnvVar)
+		if cred.ReadWrite != nil {
+			injType := cred.ReadWrite.GetInjectionType()
+			injKey := cred.ReadWrite.GetInjectionKey()
+			// Only add if different from read's target
+			if injKey != "" && (cred.Read == nil || injKey != cred.Read.GetInjectionKey()) {
+				if injType == store.InjectionConfig {
+					configPathsToClear = append(configPathsToClear, injKey)
+				} else {
+					envVarsToClear = append(envVarsToClear, injKey)
+				}
+			}
 		}
 	}
 
@@ -537,10 +617,18 @@ func (h *adminHandler) deleteCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Clear from .env and restart Gateway
-	if h.elevation != nil && h.elevation.Gateway() != nil && len(envVarsToClear) > 0 {
-		if err := h.elevation.Gateway().ClearCredentials(envVarsToClear); err != nil {
-			h.logger.Error("failed to clear credentials from env", "error", err, "envVars", envVarsToClear)
-			// Don't fail - credential is deleted from DB, env cleanup is best-effort
+	if h.elevation != nil && h.elevation.Gateway() != nil {
+		if len(envVarsToClear) > 0 {
+			if err := h.elevation.Gateway().ClearCredentials(envVarsToClear); err != nil {
+				h.logger.Error("failed to clear credentials from env", "error", err, "envVars", envVarsToClear)
+				// Don't fail - credential is deleted from DB, env cleanup is best-effort
+			}
+		}
+		if len(configPathsToClear) > 0 {
+			if err := h.elevation.Gateway().ClearConfigCredentials(configPathsToClear); err != nil {
+				h.logger.Error("failed to clear credentials from config", "error", err, "paths", configPathsToClear)
+				// Don't fail - credential is deleted from DB, config cleanup is best-effort
+			}
 		}
 	}
 
@@ -553,7 +641,7 @@ func (h *adminHandler) deleteCredential(w http.ResponseWriter, r *http.Request) 
 		Actor:     "admin",
 	})
 
-	h.logger.Info("credential deleted", "service", service, "clearedEnvVars", envVarsToClear)
+	h.logger.Info("credential deleted", "service", service, "clearedEnvVars", envVarsToClear, "clearedConfigPaths", configPathsToClear)
 	w.WriteHeader(http.StatusNoContent)
 }
 

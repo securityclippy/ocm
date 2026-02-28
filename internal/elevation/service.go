@@ -162,9 +162,11 @@ func (s *Service) RevokeElevation(service, scope string, reason string) error {
 	return nil
 }
 
-// syncCredentialsToGateway syncs all read credentials to the Gateway .env file on startup.
+// syncCredentialsToGateway syncs all read credentials to the Gateway on startup.
+// Env credentials go to .env file, config credentials would need a config patch.
 // This only writes to .env WITHOUT triggering a Gateway restart - we assume Gateway is
 // starting up at the same time and will read the .env file on its own startup.
+// Config credentials are NOT synced on startup (they should already be in config).
 func (s *Service) syncCredentialsToGateway() {
 	creds, err := s.store.ListCredentials()
 	if err != nil {
@@ -179,11 +181,16 @@ func (s *Service) syncCredentialsToGateway() {
 			continue
 		}
 		// Sync read credentials (always available)
-		if fullCred.Read != nil && fullCred.Read.EnvVar != "" && fullCred.Read.Token != "" {
-			envCreds = append(envCreds, gateway.CredentialEnv{
-				Name:  fullCred.Read.EnvVar,
-				Value: fullCred.Read.Token,
-			})
+		if fullCred.Read != nil && fullCred.Read.Token != "" {
+			injType := fullCred.Read.GetInjectionType()
+			if injType == store.InjectionEnv && fullCred.Read.EnvVar != "" {
+				envCreds = append(envCreds, gateway.CredentialEnv{
+					Name:  fullCred.Read.EnvVar,
+					Value: fullCred.Read.Token,
+				})
+			}
+			// Config credentials are already persisted in config file,
+			// no need to sync on startup
 		}
 	}
 
@@ -206,15 +213,25 @@ func (s *Service) injectReadWriteCredential(cred *store.Credential) error {
 	if cred.ReadWrite == nil {
 		return fmt.Errorf("no read-write access configured")
 	}
-	if cred.ReadWrite.EnvVar == "" {
-		return fmt.Errorf("read-write has no env var configured")
-	}
 	if cred.ReadWrite.Token == "" {
 		return fmt.Errorf("read-write has no token")
 	}
 
+	injType := cred.ReadWrite.GetInjectionType()
+	injKey := cred.ReadWrite.GetInjectionKey()
+	if injKey == "" {
+		return fmt.Errorf("read-write has no injection target configured")
+	}
+
+	if injType == store.InjectionConfig {
+		return s.gateway.SetConfigCredentials([]gateway.ConfigCredential{
+			{Path: injKey, Value: cred.ReadWrite.Token},
+		})
+	}
+
+	// Default: env injection
 	return s.gateway.SetCredentials([]gateway.CredentialEnv{
-		{Name: cred.ReadWrite.EnvVar, Value: cred.ReadWrite.Token},
+		{Name: injKey, Value: cred.ReadWrite.Token},
 	})
 }
 
@@ -225,21 +242,38 @@ func (s *Service) removeOrDowngradeCredential(service, scopeName string) error {
 		return err
 	}
 
-	// If both Read and ReadWrite use the same env var, downgrade to Read
-	// Otherwise, clear the ReadWrite env var
 	if cred.ReadWrite == nil {
 		return nil
 	}
 
-	if cred.Read != nil && cred.Read.EnvVar == cred.ReadWrite.EnvVar && cred.Read.Token != "" {
-		// Downgrade to read-only token (same env var)
+	rwInjType := cred.ReadWrite.GetInjectionType()
+	rwInjKey := cred.ReadWrite.GetInjectionKey()
+
+	// Check if Read and ReadWrite use the same injection target
+	sameTarget := false
+	if cred.Read != nil {
+		readInjType := cred.Read.GetInjectionType()
+		readInjKey := cred.Read.GetInjectionKey()
+		sameTarget = readInjType == rwInjType && readInjKey == rwInjKey
+	}
+
+	if sameTarget && cred.Read.Token != "" {
+		// Downgrade to read-only token (same injection target)
+		if rwInjType == store.InjectionConfig {
+			return s.gateway.SetConfigCredentials([]gateway.ConfigCredential{
+				{Path: rwInjKey, Value: cred.Read.Token},
+			})
+		}
 		return s.gateway.SetCredentials([]gateway.CredentialEnv{
-			{Name: cred.Read.EnvVar, Value: cred.Read.Token},
+			{Name: rwInjKey, Value: cred.Read.Token},
 		})
 	}
 
-	// Different env vars or no read token - clear the read-write credential
-	return s.gateway.ClearCredentials([]string{cred.ReadWrite.EnvVar})
+	// Different targets or no read token - clear the read-write credential
+	if rwInjType == store.InjectionConfig {
+		return s.gateway.ClearConfigCredentials([]string{rwInjKey})
+	}
+	return s.gateway.ClearCredentials([]string{rwInjKey})
 }
 
 // setExpiryTimer sets a timer to auto-expire an elevation.

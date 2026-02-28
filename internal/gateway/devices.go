@@ -675,6 +675,69 @@ func (c *RPCClient) RestartGateway(reason string) error {
 	return err
 }
 
+// PatchConfig patches the OpenClaw config file with the given JSON5 content.
+// This is used for injecting credentials that go into config (not .env).
+// The patch is merged with the existing config using JSON merge patch semantics.
+// Returns the new config hash on success.
+func (c *RPCClient) PatchConfig(patch string, reason string) (string, error) {
+	// First, get current config to get the baseHash
+	getResp, err := c.call("config.get", map[string]interface{}{})
+	if err != nil {
+		return "", fmt.Errorf("config.get failed: %w", err)
+	}
+	if getResp.OK != nil && !*getResp.OK {
+		errMsg := "unknown error"
+		if getResp.Error != nil {
+			errMsg = getResp.Error.Message
+		}
+		return "", fmt.Errorf("config.get error: %s", errMsg)
+	}
+
+	// Extract baseHash from response
+	var baseHash string
+	if payload, ok := getResp.Payload.(map[string]interface{}); ok {
+		if hash, ok := payload["hash"].(string); ok {
+			baseHash = hash
+		}
+	}
+
+	// Call config.patch
+	resp, err := c.call("config.patch", map[string]interface{}{
+		"raw":            patch,
+		"baseHash":       baseHash,
+		"note":           reason,
+		"restartDelayMs": 1000,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.OK != nil && !*resp.OK {
+		errMsg := "unknown error"
+		if resp.Error != nil {
+			errMsg = resp.Error.Message
+			// Check for rate limiting
+			if rl := parseRateLimitError(errMsg); rl != nil {
+				return "", rl
+			}
+			// Check for EBUSY
+			if strings.Contains(errMsg, "EBUSY") || strings.Contains(errMsg, "resource busy") {
+				return "", ErrConfigFileLocked
+			}
+		}
+		return "", fmt.Errorf("config.patch error: %s", errMsg)
+	}
+
+	// Extract new hash from response
+	var newHash string
+	if payload, ok := resp.Payload.(map[string]interface{}); ok {
+		if hash, ok := payload["hash"].(string); ok {
+			newHash = hash
+		}
+	}
+
+	return newHash, nil
+}
+
 // tryRestartGateway attempts a single Gateway restart via config.patch.
 func (c *RPCClient) tryRestartGateway(reason string) error {
 	// First, get current config to get the baseHash

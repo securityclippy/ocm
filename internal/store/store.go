@@ -40,13 +40,41 @@ type Credential struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// InjectionType specifies where a credential gets written.
+type InjectionType string
+
+const (
+	InjectionEnv    InjectionType = "env"    // Write to .env file
+	InjectionConfig InjectionType = "config" // Patch OpenClaw config file
+)
+
 // AccessLevel represents a single access level (read or read-write).
 type AccessLevel struct {
-	EnvVar       string        `json:"envVar"`                 // Env var name (e.g., "GITHUB_TOKEN")
+	// Injection target - where to write the credential
+	InjectionType InjectionType `json:"injectionType,omitempty"` // "env" (default) or "config"
+	EnvVar        string        `json:"envVar,omitempty"`        // For env injection: var name (e.g., "GITHUB_TOKEN")
+	ConfigPath    string        `json:"configPath,omitempty"`    // For config injection: JSON path (e.g., "channels.slack.userToken")
+
 	Token        string        `json:"token,omitempty"`        // The credential value (encrypted at rest)
 	RefreshToken string        `json:"refreshToken,omitempty"` // For OAuth refresh
 	ExpiresAt    *time.Time    `json:"expiresAt,omitempty"`    // Token expiration (not elevation)
 	MaxTTL       time.Duration `json:"maxTTL,omitempty"`       // Max elevation duration (only for ReadWrite)
+}
+
+// GetInjectionType returns the injection type, defaulting to "env" for backwards compat.
+func (a *AccessLevel) GetInjectionType() InjectionType {
+	if a.InjectionType == "" {
+		return InjectionEnv
+	}
+	return a.InjectionType
+}
+
+// GetInjectionKey returns the env var or config path depending on injection type.
+func (a *AccessLevel) GetInjectionKey() string {
+	if a.GetInjectionType() == InjectionConfig {
+		return a.ConfigPath
+	}
+	return a.EnvVar
 }
 
 // Legacy Scope for migration compatibility

@@ -2,6 +2,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -162,6 +163,99 @@ func (c *Client) RestartGateway(reason string) error {
 	}
 	c.logger.Info("gateway restart triggered successfully")
 	return nil
+}
+
+// ConfigCredential represents a credential to inject into the config file.
+type ConfigCredential struct {
+	Path  string // JSON path, e.g., "channels.slack.userToken"
+	Value string // The credential value (or empty to delete)
+}
+
+// SetConfigCredentials patches the OpenClaw config with the given credentials.
+// Each credential is written to its specified config path.
+// This triggers a Gateway restart after patching.
+func (c *Client) SetConfigCredentials(creds []ConfigCredential) error {
+	if c.rpcClient == nil {
+		c.logger.Warn("config patch skipped: no RPC client configured")
+		return nil
+	}
+
+	if len(creds) == 0 {
+		return nil
+	}
+
+	// Build the patch object from paths
+	patch := make(map[string]interface{})
+	for _, cred := range creds {
+		setNestedValue(patch, cred.Path, cred.Value)
+	}
+
+	// Convert to JSON5
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal config patch: %w", err)
+	}
+
+	c.logger.Info("patching config with credentials", "paths", len(creds))
+	_, err = c.rpcClient.PatchConfig(string(patchJSON), "OCM credential injection")
+	if err != nil {
+		c.logger.Error("config patch failed", "error", err)
+		return err
+	}
+	c.logger.Info("config patched successfully")
+	return nil
+}
+
+// ClearConfigCredentials removes credentials from the config by setting them to null.
+func (c *Client) ClearConfigCredentials(paths []string) error {
+	if c.rpcClient == nil {
+		c.logger.Warn("config patch skipped: no RPC client configured")
+		return nil
+	}
+
+	if len(paths) == 0 {
+		return nil
+	}
+
+	// Build the patch object with null values (JSON merge patch delete semantics)
+	patch := make(map[string]interface{})
+	for _, path := range paths {
+		setNestedValue(patch, path, nil)
+	}
+
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal config patch: %w", err)
+	}
+
+	c.logger.Info("clearing config credentials", "paths", paths)
+	_, err = c.rpcClient.PatchConfig(string(patchJSON), "OCM credential removal")
+	if err != nil {
+		c.logger.Error("config clear failed", "error", err)
+		return err
+	}
+	c.logger.Info("config credentials cleared")
+	return nil
+}
+
+// setNestedValue sets a value at a nested path in a map.
+// Path format: "a.b.c" sets map["a"]["b"]["c"] = value
+func setNestedValue(m map[string]interface{}, path string, value interface{}) {
+	parts := strings.Split(path, ".")
+	current := m
+
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			// Last part - set the value
+			current[part] = value
+		} else {
+			// Intermediate part - ensure nested map exists
+			if _, ok := current[part]; !ok {
+				current[part] = make(map[string]interface{})
+			}
+			current = current[part].(map[string]interface{})
+		}
+	}
 }
 
 // GetCurrentCredentials reads the current credentials from the .env file.

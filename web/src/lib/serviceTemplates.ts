@@ -1,14 +1,22 @@
 // Service templates for OCM credential management
-// These define the expected fields, env vars, and docs for each known service
+// These define the expected fields, injection targets, and docs for each known service
+
+// Injection target types - where credentials get written
+export type InjectionTarget =
+	| { type: 'env'; var: string }           // Write to .env file
+	| { type: 'config'; path: string };      // Patch OpenClaw config file
 
 export interface FieldConfig {
 	name: string;
 	label: string;
-	envVar: string;
 	type: 'text' | 'password' | 'textarea';
 	placeholder?: string;
 	required?: boolean;
 	helpText?: string;
+	// Injection target - where this field's value gets written
+	// Can be env var, config path, or both (for backwards compat, envVar alone works)
+	injection?: InjectionTarget;
+	envVar?: string;  // Legacy: equivalent to injection: { type: 'env', var: envVar }
 }
 
 export interface ServiceTemplate {
@@ -24,6 +32,17 @@ export interface ServiceTemplate {
 		readOnly?: boolean; // If true, no elevation needed (just API reads)
 		defaultTTL?: string; // Default elevation TTL
 	};
+}
+
+// Helper to get injection target from a field (handles legacy envVar)
+export function getFieldInjection(field: FieldConfig): InjectionTarget | undefined {
+	if (field.injection) {
+		return field.injection;
+	}
+	if (field.envVar) {
+		return { type: 'env', var: field.envVar };
+	}
+	return undefined;
 }
 
 export const serviceTemplates: ServiceTemplate[] = [
@@ -110,11 +129,12 @@ export const serviceTemplates: ServiceTemplate[] = [
 			{
 				name: 'userToken',
 				label: 'User Token (optional)',
-				envVar: 'SLACK_USER_TOKEN',
 				type: 'password',
 				placeholder: 'xoxp-...',
 				required: false,
-				helpText: 'OAuth & Permissions → User OAuth Token (for history, pins, reactions, search)'
+				helpText: 'OAuth & Permissions → User OAuth Token (for reading your messages)',
+				// User token goes to config file, not env var
+				injection: { type: 'config', path: 'channels.slack.userToken' }
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '24h' }
@@ -151,20 +171,22 @@ Alternative: Browser token (short-lived, expires on logout)
 			{
 				name: 'userToken',
 				label: 'User Token',
-				envVar: 'SLACK_USER_TOKEN',
 				type: 'password',
 				placeholder: 'xoxp-... (recommended) or xoxc-...',
 				required: true,
-				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (expires)'
+				helpText: 'xoxp- from OAuth app (long-lived) or xoxc- from browser (expires)',
+				// User token goes to config file, not env var
+				injection: { type: 'config', path: 'channels.slack.userToken' }
 			},
 			{
 				name: 'cookie',
 				label: 'Cookie (only for xoxc tokens)',
-				envVar: 'SLACK_COOKIE',
 				type: 'password',
 				placeholder: 'xoxd-...',
 				required: false,
-				helpText: 'Required only if using browser xoxc- token'
+				helpText: 'Required only if using browser xoxc- token',
+				// Cookie also goes to config
+				injection: { type: 'config', path: 'channels.slack.cookie' }
 			}
 		],
 		elevationConfig: { readOnly: false, defaultTTL: '4h' }
