@@ -65,8 +65,21 @@ for vol in $(docker volume ls -q | grep -E "^ocm[_-]" 2>/dev/null || true); do
     docker volume rm "$vol" 2>/dev/null || true
 done
 
-# Remove .env
+# Remove project .env
 rm -f .env
+
+# Also clear any stale gateway token from OpenClaw's config dir
+# (OpenClaw loads ~/.openclaw/.env which might have an old token)
+OC_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+if [ -f "$OC_CONFIG_DIR/.env" ]; then
+    echo -e "${BLUE}ℹ${NC}  Clearing stale tokens from $OC_CONFIG_DIR/.env"
+    # Remove gateway token line but keep other credentials (OCM manages those)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' '/OPENCLAW_GATEWAY_TOKEN/d' "$OC_CONFIG_DIR/.env"
+    else
+        sed -i '/OPENCLAW_GATEWAY_TOKEN/d' "$OC_CONFIG_DIR/.env"
+    fi
+fi
 
 echo -e "${GREEN}✓${NC}  Cleanup complete"
 echo ""

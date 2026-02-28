@@ -74,14 +74,27 @@ fi
 echo -e "${YELLOW}⚠${NC}  Current OCM token: ${CURRENT_TOKEN:0:16}..."
 echo -e "${BLUE}ℹ${NC}  Updating to match OpenClaw..."
 
-# Update .env
+# Update project .env
 if [[ "$OSTYPE" == "darwin"* ]]; then
     sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$TOKEN/" .env
 else
     sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$TOKEN/" .env
 fi
+echo -e "${GREEN}✓${NC}  Updated project .env"
 
-echo -e "${GREEN}✓${NC}  Updated .env"
+# Also update OpenClaw's config dir .env if it exists (OpenClaw loads this too!)
+OC_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+if [ -f "$OC_CONFIG_DIR/.env" ]; then
+    echo -e "${BLUE}ℹ${NC}  Checking $OC_CONFIG_DIR/.env..."
+    if grep -q "OPENCLAW_GATEWAY_TOKEN" "$OC_CONFIG_DIR/.env" 2>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$TOKEN/" "$OC_CONFIG_DIR/.env"
+        else
+            sed -i "s/^OPENCLAW_GATEWAY_TOKEN=.*/OPENCLAW_GATEWAY_TOKEN=$TOKEN/" "$OC_CONFIG_DIR/.env"
+        fi
+        echo -e "${GREEN}✓${NC}  Updated $OC_CONFIG_DIR/.env"
+    fi
+fi
 echo ""
 
 # Recreate OCM to pick up .env changes (restart doesn't reload .env)
