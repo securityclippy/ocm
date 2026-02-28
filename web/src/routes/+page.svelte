@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type DashboardData } from '$lib/api';
+	import ChannelStatus from '$lib/components/ChannelStatus.svelte';
 	import PendingDevices from '$lib/components/PendingDevices.svelte';
 	import PendingRequests from '$lib/components/PendingRequests.svelte';
 	import RecentActivity from '$lib/components/RecentActivity.svelte';
@@ -68,6 +69,9 @@
 				<div class="mt-2 text-3xl font-bold text-green-600">{dashboard.activeElevations}</div>
 			</div>
 		</div>
+
+		<!-- Channel Status -->
+		<ChannelStatus />
 
 		<!-- Pending Requests -->
 		{#if dashboard.pending && dashboard.pending.length > 0}

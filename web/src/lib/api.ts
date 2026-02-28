@@ -101,6 +101,21 @@ export interface DeviceList {
 	paired: PairedDevice[];
 }
 
+export interface ChannelStatus {
+	channel: string;
+	label: string;
+	configuredInOC: boolean;
+	requiredCreds: string[];
+	storedCreds: string[];
+	ready: boolean;
+	setupCommand?: string;
+}
+
+export interface ChannelStatusResponse {
+	gatewayConnected: boolean;
+	channels: ChannelStatus[];
+}
+
 export interface AdditionalFieldConfig {
 	name: string;
 	injectionType?: 'env' | 'config';
@@ -200,5 +215,8 @@ export const api = {
 	approveDevice: (requestId: string) =>
 		request<{ status: string; requestId: string }>(`/devices/${requestId}/approve`, { method: 'POST' }),
 	rejectDevice: (requestId: string) =>
-		request<{ status: string; requestId: string }>(`/devices/${requestId}/reject`, { method: 'POST' })
+		request<{ status: string; requestId: string }>(`/devices/${requestId}/reject`, { method: 'POST' }),
+
+	// Channel status
+	getChannelStatus: () => request<ChannelStatusResponse>('/channels/status')
 };
